@@ -1,4 +1,4 @@
-#include "hash_table.h"
+#include "include/hash_table.h"
 #include <signal.h>
 #include <string.h>
 
