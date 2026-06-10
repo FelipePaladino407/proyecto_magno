@@ -2,24 +2,34 @@
 #define FSM
 
 typedef enum {
-  EV_QR_DETECT,
-  EV_QR_VALID,
-  EV_BTN_SELECT,
-  EV_CONNECT_FAIL,
-  EV_SENT_SUCCESS
-} EventType ;
+    EV_QR_CAPTURED,
+    EV_SCAN_SUCCESS,
+    EV_SCAN_INVALID,
+    EV_PRODUCT_FOUND,
+    EV_PRODUCT_NOT_FOUND,
+    EV_STOCK_UPDATED,
+    EV_MQTT_PUBLISH_SUCCESS,
+    EV_MQTT_PUBLISH_FAILURE,
+    EV_BTN_UP,
+    EV_BTN_DOWN,
+    EV_BTN_SELECT,
+    EV_BTN_EXIT,
+    EV_TIMEOUT
+} EventType;
 
 typedef enum {
-  IDLE,
-  QR_PROCESSING,
-  SHOWING_INFO,
-  MQTT_SENDING,
-  MANUAL_MENU
+    STATE_IDLE,
+    STATE_SCAN_PROCESSING,
+    STATE_LOCAL_DB_LOOKUP,
+    STATE_PROMPT_ADD_NEW,
+    STATE_DISPLAY_PRODUCT_INFO,
+    STATE_MANUAL_SELECTION,
+    STATE_MQTT_PUBLISHING,
+    STATE_ERROR_DISPLAY
 } State;
 
 void fsm_init();
 State fsm_get_current_state();
 void fsm_execute_transition(EventType event);
-
 
 #endif // !FSM
