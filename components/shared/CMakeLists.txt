@@ -1,3 +1,3 @@
-idf_component_register(
-    INCLUDE_DIRS "include"
-)
+idf_component_register(SRCS "shared_types.c"
+                       INCLUDE_DIRS "include"
+                     )

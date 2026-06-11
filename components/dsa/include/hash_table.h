@@ -31,7 +31,7 @@ Product *hash_table_find(HashTable *table, const char *id);
 
 bool hash_table_remove(HashTable *table, const char *id);
 
-bool hash_table_update_stock(HashTable *table, const char *id, uint32_t new_stock);
+bool hash_table_update_stock(HashTable *table, const char *id, int new_stock); 
 
 bool hash_table_is_full(HashTable *table);
 
