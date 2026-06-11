@@ -1,2 +1,5 @@
 build/
 .cache/
+.zed/
+.vscode/
+.DS_Store/
