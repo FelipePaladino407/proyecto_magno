@@ -1,5 +1,4 @@
-#include "include/hash_table.h"
-#include <signal.h>
+#include "hash_table.h"
 #include <string.h>
 
 /**
@@ -38,7 +37,7 @@ void hash_table_init(HashTable *table) {
 // trivial: sirve para ver si la tabla esta llena. Esta bueno para verificar antes de insertar algo.
 bool hash_table_is_full(HashTable *table) {
   if (table == NULL) {
-    return;
+    return false;
   }
 
   return table->count >= HASH_TABLE_SIZE;
