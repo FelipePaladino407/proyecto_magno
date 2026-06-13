@@ -1,34 +1,18 @@
 #include "mqtt_client.h"
 #include "esp_log.h"
+#include "mqtt_handler.h"
 
-static const char *TAG = "MQTT_APP";
-void iniciar_mqtt(void) {
-    // Configuración básica apuntando a un broker público de prueba
-    esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "mqtt://broker.hivemq.com", 
-    };
-
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
-    
-    // Registramos el manejador de eventos que creamos arriba
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    
-    // Arrancamos el cliente
-    esp_mqtt_client_start(client);
-}
-
-static void mqtt_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = event_data;
     esp_mqtt_client_handle_t client = event->client;
 
     switch ((esp_mqtt_event_id_t)event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "¡Conectado al broker MQTT!");
-            
-            // Ejemplo: Suscribirse a un tema para recibir comandos
+
             esp_mqtt_client_subscribe(client, "control/configuracion", 0);
             
-            // Ejemplo: Publicar un dato (ej. transmitiendo la distancia calculada por el radar)
+            // Ejemplo: Publicar un dato 
             esp_mqtt_client_publish(client, "sensor/distancia_piernas", "0.85", 0, 1, 0);
             break;
 
@@ -48,4 +32,20 @@ static void mqtt_handler(void *handler_args, esp_event_base_t base, int32_t even
         default:
             break;
     }
+}
+
+static const char *TAG = "MQTT_APP";
+void iniciar_mqtt(void) {
+    // Configuración básica apuntando a un broker público de prueba
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = "mqtt://broker.hivemq.com", 
+    };
+
+    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    
+    // Manejador de eventos que creamos arriba
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+    
+    // Arrancamos el cliente
+    esp_mqtt_client_start(client);
 }
