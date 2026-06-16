@@ -13,6 +13,7 @@ typedef struct {
 } Transition;
 
 static void handle_qr_scan() { ESP_LOGI(TAG, "Executing handle_qr_scan"); }
+static void handle_wifi_connected() { ESP_LOGI(TAG, "Wi-Fi conectado, sistema listo"); }
 static void example() {ESP_LOGI(TAG, "Función ejemplo porque las demás no están implementadas");}
 
 static const Transition transition_table[] = {
