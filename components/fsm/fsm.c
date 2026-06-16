@@ -16,6 +16,7 @@ static void handle_qr_scan() { ESP_LOGI(TAG, "Executing handle_qr_scan"); }
 static void example() {ESP_LOGI(TAG, "Función ejemplo porque las demás no están implementadas");}
 
 static const Transition transition_table[] = {
+    {STATE_WIFI_CONNECTING, EV_WIFI_CONNECT_SUCCESS, STATE_IDLE, handle_wifi_connected},
     {STATE_IDLE, EV_QR_CAPTURED, STATE_SCAN_PROCESSING, handle_qr_scan},
     {STATE_IDLE, EV_BTN_SELECT, STATE_MANUAL_SELECTION, example},
     {STATE_SCAN_PROCESSING, EV_SCAN_INVALID, STATE_ERROR_DISPLAY, example},
@@ -36,7 +37,7 @@ static const Transition transition_table[] = {
 // -----------------------------------------------------
 // -----------------------------------------------------
 
-void fsm_init() { current_state = STATE_IDLE; }
+void fsm_init() { current_state = STATE_WIFI_CONNECTING; }
 State fsm_get_current_state() { return current_state; }
 
 // O(n), donde n es la cantidad de entradas de la tabla de estados
