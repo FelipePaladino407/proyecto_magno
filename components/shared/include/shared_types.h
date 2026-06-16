@@ -13,8 +13,9 @@ typedef struct {
 } Product;
 
 typedef struct {
-  uint32_t timestap;
-  char product_id[16];
+  Product product;
+  uint32_t timestamp;
+  char state[16];      // OK, ERROR o ingresoMANUAL
 } HistoryEntry;
 
 

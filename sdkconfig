@@ -1,6 +1,6 @@
 #
 # Automatically generated file. DO NOT EDIT.
-# Espressif IoT Development Framework (ESP-IDF) 6.0.0 Project Configuration
+# Espressif IoT Development Framework (ESP-IDF) 6.0.1 Project Configuration
 #
 # default:
 CONFIG_SOC_ADC_SUPPORTED=y
@@ -211,6 +211,8 @@ CONFIG_SOC_GPIO_CLOCKOUT_BY_IO_MUX=y
 # default:
 CONFIG_SOC_GPIO_CLOCKOUT_CHANNEL_NUM=3
 # default:
+CONFIG_SOC_RTC_CNTL_NEEDS_ATOMIC_ACCESS=y
+# default:
 CONFIG_SOC_DEDIC_GPIO_HAS_INTERRUPT=y
 # default:
 CONFIG_SOC_I2C_NUM=2
@@ -305,13 +307,7 @@ CONFIG_SOC_SPI_SCT_CONF_BITLEN_MAX=0x7FFFFD
 # default:
 CONFIG_SOC_MEMSPI_IS_INDEPENDENT=y
 # default:
-CONFIG_SOC_MEMSPI_SRC_FREQ_80M_SUPPORTED=y
-# default:
-CONFIG_SOC_MEMSPI_SRC_FREQ_40M_SUPPORTED=y
-# default:
-CONFIG_SOC_MEMSPI_SRC_FREQ_26M_SUPPORTED=y
-# default:
-CONFIG_SOC_MEMSPI_SRC_FREQ_20M_SUPPORTED=y
+CONFIG_SOC_MEMSPI_ENCRYPTION_ALIGNMENT=16
 # default:
 CONFIG_SOC_SYSTIMER_COUNTER_NUM=1
 # default:
@@ -537,7 +533,7 @@ CONFIG_IDF_TARGET_ARCH="xtensa"
 # default:
 CONFIG_IDF_TARGET="esp32s2"
 # default:
-CONFIG_IDF_INIT_VERSION="$IDF_INIT_VERSION"
+CONFIG_IDF_INIT_VERSION="6.0.1"
 # default:
 CONFIG_IDF_TARGET_ESP32S2=y
 # default:
@@ -561,6 +557,11 @@ CONFIG_APP_BUILD_USE_FLASH_SECTIONS=y
 # default:
 # CONFIG_APP_NO_BLOBS is not set
 # end of Build type
+
+#
+# App Update config
+#
+# end of App Update config
 
 #
 # Bootloader config
@@ -921,6 +922,18 @@ CONFIG_COMPILER_CXX_GLIBCXX_CONSTEXPR_NO_CHANGE=y
 #
 
 #
+# !!! MINIMAL_BUILD is enabled !!!
+#
+
+#
+# Only common components and those transitively required by the main component are listed
+#
+
+#
+# If a component configuration is missing, please add it to the main component's requirements
+#
+
+#
 # eFuse Bit Manager
 #
 # default:
@@ -1194,6 +1207,33 @@ CONFIG_LIBC_ASSERT_BUFFER_SIZE=200
 # default:
 # CONFIG_ESP_MM_CACHE_MSYNC_C2M_CHUNKED_OPS is not set
 # end of ESP-MM: Memory Management Configurations
+
+#
+# ESP NETIF Adapter
+#
+# default:
+CONFIG_ESP_NETIF_LOST_IP_TIMER_ENABLE=y
+# default:
+CONFIG_ESP_NETIF_IP_LOST_TIMER_INTERVAL=120
+# default:
+# CONFIG_ESP_NETIF_PROVIDE_CUSTOM_IMPLEMENTATION is not set
+# default:
+CONFIG_ESP_NETIF_TCPIP_LWIP=y
+# default:
+# CONFIG_ESP_NETIF_LOOPBACK is not set
+# default:
+CONFIG_ESP_NETIF_USES_TCPIP_WITH_BSD_API=y
+# default:
+CONFIG_ESP_NETIF_REPORT_DATA_TRAFFIC=y
+# default:
+CONFIG_ESP_NETIF_RECEIVE_REPORT_ERRORS=y
+# default:
+# CONFIG_ESP_NETIF_L2_TAP is not set
+# default:
+# CONFIG_ESP_NETIF_BRIDGE_EN is not set
+# default:
+# CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF is not set
+# end of ESP NETIF Adapter
 
 #
 # Partition API Configuration
@@ -2506,6 +2546,8 @@ CONFIG_VFS_SUPPRESS_SELECT_DEBUG_OUTPUT=y
 # CONFIG_VFS_SUPPORT_TERMIOS is not set
 # default:
 CONFIG_VFS_MAX_COUNT=8
+# default:
+# CONFIG_VFS_SUPPRESS_CTX_DEPRECATION is not set
 
 #
 # Host File System I/O (Semihosting)
@@ -2517,6 +2559,15 @@ CONFIG_VFS_SEMIHOSTFS_MAX_MOUNT_POINTS=1
 # default:
 CONFIG_VFS_INITIALIZE_DEV_NULL=y
 # end of Virtual file system
+
+#
+# cJSON
+#
+# default:
+CONFIG_CJSON_NESTING_LIMIT=1000
+# default:
+CONFIG_CJSON_CIRCULAR_LIMIT=10000
+# end of cJSON
 
 #
 # ESP-MQTT Configurations

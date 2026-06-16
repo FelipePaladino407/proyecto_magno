@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -27,22 +28,16 @@ void logger_init(void)
     ESP_LOGI(TAG, "Logger inicializado");
 }
 
-bool logger_push(Product producto, const char *fecha_hora, const char *estado)
+bool logger_push(Product producto, const uint32_t timestamp, const char state[16])
 {
-    if (fecha_hora == NULL || estado == NULL) {
+    if (timestamp == 0 || state == NULL) {
         return false;
     }
 
-    buffer[tail].producto = producto;
-
-    strncpy(buffer[tail].fecha_hora, fecha_hora, sizeof(buffer[tail].fecha_hora) - 1);
-    // Se usa strncpy en vez de copiar directo para no pasarse del tamaño del array
-    // El -1 deja un espacio libre para el caracter \0
-    buffer[tail].fecha_hora[sizeof(buffer[tail].fecha_hora) - 1] = '\0';
-
-    strncpy(buffer[tail].estado, estado, sizeof(buffer[tail].estado) - 1);
+    buffer[tail].product = producto;
+    buffer[tail].timestamp = timestamp;
+    strncpy(buffer[tail].state, state, sizeof(buffer[tail].state) - 1);
     // Tambien se copia el estado del evento: OK, MANUAL o ERROR.
-    buffer[tail].estado[sizeof(buffer[tail].estado) - 1] = '\0';
 
     tail = (tail + 1) % LOGGER_SIZE; // Esto hace que el buffer sea circular: cuando tail llega al final vuelve a 0, en los otros casos el resto es tail+1
 
@@ -58,8 +53,8 @@ bool logger_push(Product producto, const char *fecha_hora, const char *estado)
              producto.id,
              producto.name,
              (unsigned long)producto.stock,
-             fecha_hora,
-             estado);
+             timestamp,
+             state);
 
     return true;
 }
@@ -79,11 +74,11 @@ void logger_print(void)
         ESP_LOGI(TAG,
                  "[%d] %s | %s | %lu | %s | %s",
                  i,
-                 buffer[index].producto.id,
-                 buffer[index].producto.name,
-                 (unsigned long)buffer[index].producto.stock,
-                 buffer[index].fecha_hora,
-                 buffer[index].estado);
+                 buffer[index].product.id,
+                 buffer[index].product.name,
+                 (unsigned long)buffer[index].product.stock,
+                 buffer[index].timestamp,
+                 buffer[index].state);
     }
 }
 
