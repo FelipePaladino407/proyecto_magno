@@ -2,6 +2,9 @@
 #include "freertos/projdefs.h"
 #include "fsm.h"
 #include <freertos/FreeRTOS.h>
+#include "logger.h"
+#include "ntp_handler.h"
+#include "mqtt_handler.h"
 
 static QueueHandle_t fsm_event_queue;
 
@@ -18,6 +21,10 @@ void fsm_task(void *pvParameters) {
 }
 
 void app_main(void) {
+  logger_init();
+  init_time();
+  iniciar_mqtt();
+  //ojo Antes de init_time() tiene que estar inicializado WiFi
   fsm_init();
   xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
 }

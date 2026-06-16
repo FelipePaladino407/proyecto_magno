@@ -2,6 +2,73 @@
 #include "esp_log.h"
 #include "mqtt_handler.h"
 #include "shared_types.h"
+#include "logger.h"
+#include "ntp_handler.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#include "cJSON.h"
+
+static const char *TAG = "MQTT_APP";
+static esp_mqtt_client_handle_t cliente_mqtt_global = NULL;
+
+static const char *DEVICE_ID = "ESP32_01";//por esto de conectar varias placas en simultaneo, cada una tiene un ID distinto para identificarlas en el broker
+
+static bool procesar_json_recibido(const char *mensaje)
+{
+    Product producto_recibido;
+    memset(&producto_recibido, 0, sizeof(producto_recibido));
+
+    char fecha_hora[32] = "";
+    char estado[16] = "";
+
+    cJSON *json = cJSON_Parse(mensaje);
+
+    if (json == NULL) {
+        ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
+        return false;
+    }
+
+    cJSON *id = cJSON_GetObjectItem(json, "id");
+    cJSON *producto = cJSON_GetObjectItem(json, "producto");
+    cJSON *stock = cJSON_GetObjectItem(json, "stock");
+    cJSON *fecha = cJSON_GetObjectItem(json, "fecha_hora");
+    cJSON *estado_json = cJSON_GetObjectItem(json, "estado");
+
+    if (cJSON_IsString(id) && cJSON_IsString(producto) && cJSON_IsNumber(stock) && cJSON_IsString(fecha) && cJSON_IsString(estado_json)) {
+
+        strncpy(producto_recibido.id, id->valuestring, sizeof(producto_recibido.id) - 1);
+        producto_recibido.id[sizeof(producto_recibido.id) - 1] = '\0';
+
+        strncpy(producto_recibido.name, producto->valuestring, sizeof(producto_recibido.name) - 1);
+        producto_recibido.name[sizeof(producto_recibido.name) - 1] = '\0';
+
+        producto_recibido.stock = (uint32_t)stock->valuedouble;
+
+        strncpy(fecha_hora, fecha->valuestring, sizeof(fecha_hora) - 1);
+        fecha_hora[sizeof(fecha_hora) - 1] = '\0';
+
+        strncpy(estado, estado_json->valuestring, sizeof(estado) - 1);
+        estado[sizeof(estado) - 1] = '\0';
+
+        logger_push(producto_recibido, fecha_hora, estado);
+
+        ESP_LOGI(TAG, "Struct reconstruido -> ID: %s, Nombre: %s, Stock: %lu, Estado: %s",
+                 producto_recibido.id,
+                 producto_recibido.name,
+                 (unsigned long)producto_recibido.stock,
+                 estado);
+
+        cJSON_Delete(json);
+        return true;
+    }
+
+    ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
+
+    cJSON_Delete(json);
+    return false;
+}
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = event_data;
@@ -10,17 +77,30 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     switch ((esp_mqtt_event_id_t)event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "¡Conectado al broker MQTT!");
+            cliente_mqtt_global = client;
             esp_mqtt_client_subscribe(client, "control/configuracion", 0);
+            esp_mqtt_client_subscribe(client, "sistema/escaner/evento", 0);
+            esp_mqtt_client_subscribe(client, "sistema/escaner/error", 0);
             esp_mqtt_client_publish(client, "ESP_CONNECTED", "1", 0, 1, 0);
             break;
 
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "Desconectado del broker MQTT");
+            cliente_mqtt_global = NULL;
             break;
+
         case MQTT_EVENT_DATA:
+        {
             ESP_LOGI(TAG, "Producto recibido en el tema: %.*s", event->topic_len, event->topic);
             ESP_LOGI(TAG, "Datos: %.*s", event->data_len, event->data);
+
+            char mensaje[256];
+            snprintf(mensaje, sizeof(mensaje), "%.*s", event->data_len, event->data);
+
+            procesar_json_recibido(mensaje);
+
             break;
+        }
 
         case MQTT_EVENT_ERROR:
             ESP_LOGE(TAG, "Ha ocurrido un error en MQTT");
@@ -31,7 +111,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     }
 }
 
-static const char *TAG = "MQTT_APP";
 void iniciar_mqtt(void) {
     // Configuración básica apuntando a un broker público de prueba
     esp_mqtt_client_config_t mqtt_cfg = {
@@ -46,75 +125,56 @@ void iniciar_mqtt(void) {
     // Arrancamos el cliente
     esp_mqtt_client_start(client);
 }
-void procesar_y_publicar_qr(Product producto_escaneado) {
+
+
+static void publicar_evento(Product producto, const char *estado, const char *topic)
+{
+    char fecha_hora[32];
+
+    get_fecha_hora(fecha_hora, sizeof(fecha_hora)); // guarda la fecha y hora en fecha_hora
+
+    logger_push(producto, fecha_hora, estado); // lo mete al logger junto con la struc product que tiene el producto, su id, stock y estado
+
     if (cliente_mqtt_global == NULL) return; // Asegurar que estamos conectados
 
-    char payload[100];
-    // Empaquetamos el struct en un string: "ID|Nombre|Stock"
-    snprintf(payload, sizeof(payload), "%s|%s|%lu", 
-             producto_escaneado.id, 
-             producto_escaneado.name, 
-             producto_escaneado.stock);
+    char payload[256];
+
+    // Empaquetamos el struct en un string JSON con ID, Nombre, Stock, FechaHora y Estado
+    snprintf(payload,
+             sizeof(payload),
+             "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\",\"stock\":%lu,\"fecha_hora\":\"%s\",\"estado\":\"%s\"}",
+             DEVICE_ID,
+             producto.id,
+             producto.name,
+             (unsigned long)producto.stock,
+             fecha_hora,
+             estado);
 
     // Publicamos el texto armado
-    esp_mqtt_client_publish(cliente_mqtt_global, "sistema/escaner/lectura_qr", payload, 0, 1, 0);
+    esp_mqtt_client_publish(cliente_mqtt_global, topic, payload, 0, 1, 0);
     ESP_LOGI(TAG, "Producto publicado: %s", payload);
 }
-static void mqtt_event_handler_pantalla(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
-    esp_mqtt_event_handle_t event = event_data;
-    esp_mqtt_client_handle_t client = event->client;
 
-    switch ((esp_mqtt_event_id_t)event_id) {
-        case MQTT_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "Conectado. Suscribiendo a lectura_qr...");
-            esp_mqtt_client_subscribe(client, "sistema/escaner/lectura_qr", 0);
-            cliente_mqtt_global = client;
-            break;
 
-        case MQTT_EVENT_DATA:
-            ESP_LOGI(TAG, "Dato recibido en tema: %.*s", event->topic_len, event->topic);
-            
-            char qr_recibido[100];
-            snprintf(qr_recibido, sizeof(qr_recibido), "%.*s", event->data_len, event->data);
-            Product producto_recibido;
-            // Usamos sscanf para leer el formato "ID|Nombre|Stock"
-            int compartimento = 0;     // Empieza en 0 (ID)
-            int posicion = 0;          // Pocicion dentro del compartimento
-            char texto_stock[15] = ""; // Guardar el número como texto
+void procesar_y_publicar_qr(Product producto_escaneado) {
+    publicar_evento(producto_escaneado, "OK", "sistema/escaner/evento");
+}
 
-            // El for avanza letra por letra hasta que encuentra el final del texto ('\0')
-            for (int i = 0; qr_recibido[i] != '\0'; i++) {
-                char letra = qr_recibido[i];
-            
-                if (letra == '|') {
-                    // Encontramos una barra: cambiamos de caja y reseteamos la posición
-                    compartimento++;
-                    posicion = 0; 
-                } else {
-                    if (compartimento == 0) {              // No es una barra, así que guardamos la letra donde corresponda
-                        producto_recibido.id[posicion] = letra;
-                        producto_recibido.id[posicion + 1] = '\0'; // Asegura el fin de la palabra
-                    } 
-                    else if (compartimento == 1) {
-                        producto_recibido.name[posicion] = letra;
-                        producto_recibido.name[posicion + 1] = '\0';
-                    } 
-                    else if (compartimento == 2) {
-                        texto_stock[posicion] = letra;
-                        texto_stock[posicion + 1] = '\0';
-                    }
-                    posicion++; // Avanzamos el espacio para la siguiente letra
-                }
-            }
-                producto_recibido.stock = atoi(texto_stock);
-                ESP_LOGI(TAG, "Struct reconstruido -> ID: %s, Nombre: %s, Stock: %lu", 
-                         producto_recibido.id, producto_recibido.name, producto_recibido.stock);
-            
-            } else {
-                ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
-            }
-            break;
-            
-        default:
-            break;
-    }
+void procesar_y_publicar_manual(Product producto_manual) {
+    publicar_evento(producto_manual, "MANUAL", "sistema/escaner/evento");
+}
+
+void procesar_y_publicar_error(const char *mensaje_error) {
+    Product producto_error;
+    memset(&producto_error, 0, sizeof(producto_error));
+
+    strncpy(producto_error.id, "ERROR", sizeof(producto_error.id) - 1);
+    producto_error.id[sizeof(producto_error.id) - 1] = '\0';
+
+    strncpy(producto_error.name, mensaje_error, sizeof(producto_error.name) - 1);
+    producto_error.name[sizeof(producto_error.name) - 1] = '\0';
+
+    producto_error.stock = 0;
+
+    publicar_evento(producto_error, "ERROR", "sistema/escaner/error");
+}

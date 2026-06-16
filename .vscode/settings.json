@@ -11,7 +11,7 @@
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=c:\\Users\\bruno\\OneDrive\\Desktop\\laboratorio_2_iot_\\Laboratorio_2b\\softap_sta\\build"
+    "--compile-commands-dir=c:\\IOT\\proyecto_magno\\build"
   ],
   "idf.flashType": "UART",
   "idf.portWin": "COM10"

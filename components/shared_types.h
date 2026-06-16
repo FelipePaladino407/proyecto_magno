@@ -1,16 +1,18 @@
 #ifndef SHARED_TYPES_H
 #define SHARED_TYPES_H
+
 #include <stdint.h>
 
 typedef struct {
-    char id[16];          // ID UNICO (ej., "BEDFORD_0002")
-    char name[32];        // nombre (ej. "Bedford TK Diesel 3.0")
-    uint32_t stock;       // contador stock actual 
+    char id[16];
+    char name[32];
+    uint32_t stock;
 } Product;
 
 typedef struct {
-    uint32_t timestamp;   // NTP
-    char product_id[16];   
+    Product producto;
+    char fecha_hora[32];
+    char estado[16];      // OK, ERROR o ingresoMANUAL
 } HistoryEntry;
 
 #endif
