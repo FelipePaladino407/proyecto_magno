@@ -2,6 +2,7 @@
 #define FSM
 
 typedef enum {
+    EV_WIFI_CONNECT_SUCCESS,
     EV_QR_CAPTURED,
     EV_SCAN_SUCCESS,
     EV_SCAN_INVALID,
@@ -18,6 +19,7 @@ typedef enum {
 } EventType;
 
 typedef enum {
+    STATE_WIFI_CONNECTING,
     STATE_IDLE,
     STATE_SCAN_PROCESSING,
     STATE_LOCAL_DB_LOOKUP,
