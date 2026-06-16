@@ -13,7 +13,10 @@ typedef struct {
 } Transition;
 
 static void handle_qr_scan() { ESP_LOGI(TAG, "Executing handle_qr_scan"); }
-static void example() {ESP_LOGI(TAG, "Función ejemplo porque las demás no están implementadas");}
+static void example() {
+  ESP_LOGI(TAG, "Example function, uuu");
+  ESP_LOGI(TAG, "CURRENT STATE: %d", current_state);
+}
 
 static const Transition transition_table[] = {
     {STATE_IDLE, EV_QR_CAPTURED, STATE_SCAN_PROCESSING, handle_qr_scan},
