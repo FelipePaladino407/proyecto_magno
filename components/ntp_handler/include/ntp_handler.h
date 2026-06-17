@@ -2,10 +2,10 @@
 #define NTP_HANDLER_H
 
 #include <stdbool.h>
-#include <stddef.h>
+#include <time.h>
 
-void init_time(void);  // Inicializa la hora por internet usando NTP y configura la zona horaria de Uruguay
+void init_time(void); // Inicializa la hora por internet usando NTP
 
-bool get_fecha_hora(char *fecha_hora, size_t max_len); // Guarda la fecha y hora actual en el buffer recibido y devuelve true si pudo hacerlo bien
+bool get_timestamp(time_t *timestamp); // Guarda la hora actual en formato time_t y devuelve true si pudo hacerlo bien
 
 #endif

@@ -13,9 +13,9 @@ static const char *TAG = "NTP_HANDLER";
 
 void init_time(void)
 {
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org"); // Se crea la configuración SNTP usando el servidor pool.ntp.org para sacar la hora de internet
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org"); // Se crea la configuracion SNTP usando el servidor pool.ntp.org para sacar la hora de internet
 
-    esp_netif_sntp_init(&config); // Se inicializa SNTP con la configuración anterior
+    esp_netif_sntp_init(&config); // Se inicializa SNTP con la configuracion anterior
 
     esp_err_t ret = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000)); // Se espera hasta 10 segundos a que la hora se sincronice
 
@@ -25,32 +25,30 @@ void init_time(void)
         ESP_LOGW(TAG, "No se pudo sincronizar la hora con NTP");
     }
 
-    // Uruguay es UTC-3
-    setenv("TZ", "<-03>3", 1);//TZ:nombre de la variable donde se guarda la zona horaria."<-03>3": indica UTC−3. 1: permite sobrescribir TZ si ya tenía otro valor.
-    tzset();
-//sacado de https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/system_time.html
+    // Uruguay es UTC-3. 
+    setenv("TZ", "<-03>3", 1); // TZ: nombre de la variable donde se guarda la zona horaria. "<-03>3": indica UTC-3. 1: permite sobrescribir TZ si ya tenia otro valor.
+    tzset(); // Sacado de https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/system_time.html
 }
 
-bool get_fecha_hora(char *fecha_hora, size_t max_len)
+bool get_timestamp(time_t *timestamp)
 {
-    if (fecha_hora == NULL || max_len == 0) {// Se verifica que el buffer exista y que tenga tamaño válido
+    if (timestamp == NULL) { // Se verifica que el puntero exista
         return false;
     }
 
-    time_t ahora; // Variable donde se guarda la hora actual en formato interno del sistema (segundos pasados desde 1970-01-01 00:00:00 UTC)
-    time(&ahora);// Se obtiene la hora actual del sistema
+    time_t ahora; // Variable donde se guarda la hora actual en formato time_t
+    time(&ahora); // Se obtiene la hora actual del sistema
 
-    struct tm timeinfo; // Estructura donde se separa la hora en año, mes, día, hora, minuto y segundo
-    localtime_r(&ahora, &timeinfo);// Se convierte la hora actual a hora local, usando la zona horaria configurada
+    struct tm timeinfo; // Estructura usada solo para comprobar que la hora ya este sincronizada
+    localtime_r(&ahora, &timeinfo); // Se convierte la hora actual a hora local, usando la zona horaria configurada
 
-    // tm_year guarda los años pasados desde 1900 (por eso 2020-1900S). Si el año calculado es menor a 2020,
-    // se asume que la hora todavía no se sincronizó bien con NTP.
+    // tm_year guarda los a;os pasados desde 1900. Si el a;o calculado es menor a 2020,
+    // se asume que la hora todavia no se sincronizo bien con NTP
     if (timeinfo.tm_year < (2020 - 1900)) {
-        snprintf(fecha_hora, max_len, "HORA_NO_SYNC");
+        *timestamp = 0;
         return false;
     }
 
-    strftime(fecha_hora,max_len,"%Y-%m-%d %H:%M:%S",&timeinfo);
-    // Convierte la hora separada en timeinfo a un texto con formato "año-mes-día hora:minuto:segundo".
+    *timestamp = ahora; // Se guarda la hora como time_t en el puntero recibido
     return true;
 }

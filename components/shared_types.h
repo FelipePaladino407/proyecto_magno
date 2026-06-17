@@ -2,6 +2,7 @@
 #define SHARED_TYPES_H
 
 #include <stdint.h>
+#include <time.h>
 
 typedef struct {
     char id[16];
@@ -10,9 +11,9 @@ typedef struct {
 } Product;
 
 typedef struct {
-    Product producto;
-    char fecha_hora[32];
-    char estado[16];      // OK, ERROR o ingresoMANUAL
+    Product product;
+    time_t timestamp;
+    char state[16]; // OK, ERROR o ingresoMANUAL
 } HistoryEntry;
 
 #endif
