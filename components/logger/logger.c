@@ -98,7 +98,7 @@ void logger_init(void)
     ESP_LOGI(TAG, "Logger inicializado desde NVS");
 }
 
-bool logger_push(Product product, time_t timestamp, const char state[16])
+bool logger_push(Product product, time_t timestamp, const char *state)
 {
     if (timestamp == 0 || state == NULL) {
         return false;
@@ -112,8 +112,6 @@ bool logger_push(Product product, time_t timestamp, const char state[16])
 
     strncpy(buffer[tail].state, state, sizeof(buffer[tail].state) - 1);
     buffer[tail].state[sizeof(buffer[tail].state) - 1] = '\0';
-
-    // Tambien se copia el estado del evento: OK, MANUAL o ERROR.
 
     tail = (tail + 1) % LOGGER_SIZE; // Esto hace que el buffer sea circular: cuando tail llega al final vuelve a 0, en los otros casos el resto es tail+1
 

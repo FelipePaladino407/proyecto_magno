@@ -10,7 +10,7 @@
 
 void logger_init(void); // Inicializa el logger y carga desde NVS lo que habia guardado
 
-bool logger_push(Product product, time_t timestamp, const char state[16]); // Guarda un producto con su time y estado en el buffer circular y en NVS. Devuelve true si se guardo bien o false si hubo un error
+bool logger_push(Product product, time_t timestamp, const char *state); // Guarda un producto con su timestamp y estado en el buffer circular y en NVS. Devuelve true si se guardo bien o false si hubo un error
 
 int logger_count(void); // Devuelve cuantos eventos hay guardados
 
