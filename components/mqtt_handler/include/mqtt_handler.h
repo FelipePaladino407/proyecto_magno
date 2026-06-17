@@ -2,6 +2,9 @@
 #define MQTT_HANDLER_H
 
 #include "shared_types.h"
+#include "logger.h"
+
+void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido); // guarda los punteros a los loggers que va a usar mqtt_handler
 
 void iniciar_mqtt(void); // arranca el cliente mqtt y lo conecta al broker
 

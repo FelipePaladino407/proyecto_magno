@@ -19,14 +19,15 @@
 
 static const char *TAG = "MAIN";
 QueueHandle_t fsm_event_queue = NULL;
+static Logger logger_local;
+static Logger logger_recibido;
 
 void fsm_task(void *pvParameters) {
   EventType incoming_event;
   ESP_LOGI(TAG, "FSM Task started");
 
   while (1) {
-    if (xQueueReceive(fsm_event_queue, &incoming_event, portMAX_DELAY) ==
-        pdPASS) {
+    if (xQueueReceive(fsm_event_queue, &incoming_event, portMAX_DELAY) == pdPASS) {
       ESP_LOGI(TAG, "EVENT RECEIVED: %d", incoming_event);
       fsm_execute_transition(incoming_event);
     }
@@ -34,10 +35,15 @@ void fsm_task(void *pvParameters) {
 }
 
 void app_main(void) {
-  logger_init();
+  logger_init(&logger_local, "local");
+  logger_init(&logger_recibido, "recibido");
+
+  mqtt_handler_set_loggers(&logger_local, &logger_recibido);
+
+  //ojo antes de init_time() tiene que estar inicializado WiFi
   init_time();
   iniciar_mqtt();
-  //ojo Antes de init_time() tiene que estar inicializado WiFi
+
   fsm_init();
   fsm_event_queue = xQueueCreate(20, sizeof(EventType));
 

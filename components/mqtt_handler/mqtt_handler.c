@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <stdbool.h>
 
 #include "cJSON.h"
 
@@ -16,7 +17,17 @@ static const char *TAG = "MQTT_APP";
 
 static esp_mqtt_client_handle_t cliente_mqtt_global = NULL;
 
-static const char *DEVICE_ID = "ESP32_01"; // por esto de conectar varias placas en simultaneo, cada una tiene un ID distinto para identificarlas en el broker
+static Logger *logger_local_mqtt = NULL;
+static Logger *logger_recibido_mqtt = NULL;
+
+static const char *DEVICE_ID = "LCD_01"; // por esto de conectar varias placas en simultaneo, cada una tiene un ID distinto para identificarlas en el broker
+#define DEVICE_IS_LCD 1                  // 1 si esta placa es LCD, 0 si esta placa es camara
+
+void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido)
+{
+    logger_local_mqtt = logger_local;
+    logger_recibido_mqtt = logger_recibido;
+}
 
 static bool procesar_json_recibido(const char *mensaje)
 {
@@ -33,11 +44,18 @@ static bool procesar_json_recibido(const char *mensaje)
         return false;
     }
 
+    cJSON *device_id = cJSON_GetObjectItem(json, "device_id");
     cJSON *id = cJSON_GetObjectItem(json, "id");
     cJSON *producto = cJSON_GetObjectItem(json, "producto");
     cJSON *stock = cJSON_GetObjectItem(json, "stock");
     cJSON *timestamp_json = cJSON_GetObjectItem(json, "timestamp");
     cJSON *estado_json = cJSON_GetObjectItem(json, "estado");
+
+    if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {
+        ESP_LOGI(TAG, "Mensaje propio recibido, no se guarda en logger recibido");
+        cJSON_Delete(json);
+        return true;
+    }
 
     if (cJSON_IsString(id) && cJSON_IsString(producto) && cJSON_IsNumber(stock) && cJSON_IsNumber(timestamp_json) && cJSON_IsString(estado_json)) {
 
@@ -54,7 +72,11 @@ static bool procesar_json_recibido(const char *mensaje)
         strncpy(estado, estado_json->valuestring, sizeof(estado) - 1);
         estado[sizeof(estado) - 1] = '\0';
 
-        logger_push(producto_recibido, timestamp, estado);
+        if (logger_recibido_mqtt != NULL) {
+            logger_push(logger_recibido_mqtt, producto_recibido, timestamp, estado);
+        } else {
+            ESP_LOGW(TAG, "No hay logger recibido configurado");
+        }
 
         ESP_LOGI(TAG,
                  "Struct reconstruido -> ID: %s, Nombre: %s, Stock: %lu, Timestamp: %lld, Estado: %s",
@@ -85,10 +107,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         cliente_mqtt_global = client;
 
         esp_mqtt_client_subscribe(client, "control/configuracion", 0);
+
+#if DEVICE_IS_LCD
         esp_mqtt_client_subscribe(client, "sistema/escaner/evento", 0);
         esp_mqtt_client_subscribe(client, "sistema/escaner/error", 0);
+#endif
 
-        esp_mqtt_client_publish(client, "ESP_CONNECTED", "1", 0, 1, 0);
+        esp_mqtt_client_publish(client, "ESP_CONNECTED", DEVICE_ID, 0, 1, 0);
         break;
 
     case MQTT_EVENT_DISCONNECTED:
@@ -100,15 +125,44 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "Producto recibido en el tema: %.*s", event->topic_len, event->topic);
         ESP_LOGI(TAG, "Datos: %.*s", event->data_len, event->data);
 
+        char topic[128];
         char mensaje[256];
-        snprintf(mensaje, sizeof(mensaje), "%.*s", event->data_len, event->data);
 
-        procesar_json_recibido(mensaje);
+        int topic_len = event->topic_len;
+        int data_len = event->data_len;
+
+        if (topic_len >= sizeof(topic)) {
+            topic_len = sizeof(topic) - 1;
+        }
+
+        if (data_len >= sizeof(mensaje)) {
+            data_len = sizeof(mensaje) - 1;
+        }
+
+        memcpy(topic, event->topic, topic_len);
+        topic[topic_len] = '\0';
+
+        memcpy(mensaje, event->data, data_len);
+        mensaje[data_len] = '\0';
+
+        if (strcmp(topic, "sistema/escaner/evento") == 0 || strcmp(topic, "sistema/escaner/error") == 0) {
+            procesar_json_recibido(mensaje);
+        } else {
+            ESP_LOGI(TAG, "Mensaje recibido en un topic que no es de productos, no se guarda en logger");
+        }
+
         break;
     }
 
     case MQTT_EVENT_ERROR:
         ESP_LOGE(TAG, "Ha ocurrido un error en MQTT");
+
+        if (event->error_handle != NULL) {
+            ESP_LOGE(TAG, "Tipo de error MQTT: %d", event->error_handle->error_type);
+            ESP_LOGE(TAG, "Error esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
+            ESP_LOGE(TAG, "Error socket errno: %d", event->error_handle->esp_transport_sock_errno);
+        }
+
         break;
 
     default:
@@ -120,10 +174,15 @@ void iniciar_mqtt(void)
 {
     // Configuracion basica apuntando a un broker publico de prueba
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "mqtts://1cff5a3e91744d43b7af27dc81364b6d.s1.eu.hivemq.cloud:8883",
+        .broker.address.uri = "mqtt://mqtt-dashboard.com:1883",
     };
 
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+
+    if (client == NULL) {
+        ESP_LOGE(TAG, "No se pudo crear el cliente MQTT");
+        return;
+    }
 
     // Manejador de eventos
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
@@ -141,9 +200,14 @@ static void publicar_evento(Product producto, const char *estado, const char *to
         return;
     }
 
-    logger_push(producto, timestamp, estado); // Lo mete al logger junto con la struct product que tiene el producto, su id, stock, timestamp y estado
+    if (logger_local_mqtt != NULL) {
+        logger_push(logger_local_mqtt, producto, timestamp, estado); // Lo mete al logger junto con la struct product que tiene el producto, su id, stock, timestamp y estado
+    } else {
+        ESP_LOGW(TAG, "No hay logger local configurado");
+    }
 
     if (cliente_mqtt_global == NULL) {
+        ESP_LOGW(TAG, "MQTT no conectado, no se publica pero ya quedo guardado en el logger");
         return; // para asegurar que estamos conectados
     }
 
