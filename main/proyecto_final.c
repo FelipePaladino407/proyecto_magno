@@ -9,13 +9,9 @@
 #include <stdint.h>
 
 /*
- * ATENCION: Acá tenemos configurado un ejemplo de uso de la FSM. En el modulo
- * input_handler se configuran las interrupciones y se define una ISR para los
- * pines GPIO 1,2 y 3. En el input_handler.c se muestra cómo enviar un evento a
- * la fsm_event_queue desde el propio modulo. Cada vez que el pin 1 se pone en
- * HIGH, salta la ISR enviando un evento EV_BTN_SELECT a la cola. Esto hace que
- * la FSM cambie de estado.
- * */
+* IMPORTANTE: DEFINIR FORMA DE CAMBIAR EL COMPORTAMIENTO EN BASE AL
+* DISPOSITIVO A UTILIZAR
+* */
 
 static const char *TAG = "MAIN";
 QueueHandle_t fsm_event_queue = NULL;
@@ -35,6 +31,14 @@ void fsm_task(void *pvParameters) {
 }
 
 void app_main(void) {
+  fsm_init();
+  fsm_event_queue = xQueueCreate(20, sizeof(EventType));
+
+  if (fsm_event_queue == NULL) {
+    ESP_LOGE(TAG, "CRITICAL: Failed to create FSM Event Queue");
+    return;
+  }
+
   logger_init(&logger_local, "local");
   logger_init(&logger_recibido, "recibido");
 
@@ -44,16 +48,9 @@ void app_main(void) {
   init_time();
   iniciar_mqtt();
 
-  fsm_init();
-  fsm_event_queue = xQueueCreate(20, sizeof(EventType));
-
-  if (fsm_event_queue == NULL) {
-    ESP_LOGE(TAG, "CRITICAL: Failed to create FSM Event Queue");
-    return;
-  }
-
   // CONFIGURACION DE INTERRUPCIONES DE GPIO
-  button_int_config();
+  // IRRELEVANTE E INUTIL
+  // button_int_config();
 
   xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
 }
