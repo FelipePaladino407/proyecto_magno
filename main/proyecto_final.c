@@ -30,8 +30,10 @@ void fsm_task(void *pvParameters) {
   }
 }
 
+void fsm_run_transition_tests(void);
+
 void app_main(void) {
-  fsm_init();
+  /**fsm_init();
   fsm_event_queue = xQueueCreate(20, sizeof(EventType));
 
   if (fsm_event_queue == NULL) {
@@ -51,6 +53,13 @@ void app_main(void) {
   // CONFIGURACION DE INTERRUPCIONES DE GPIO
   // IRRELEVANTE E INUTIL
   // button_int_config();
+*/
+  /*
+   */
 
-  xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
+   fsm_run_transition_tests();
+
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }

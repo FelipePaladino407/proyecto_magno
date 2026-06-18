@@ -36,11 +36,16 @@ static void example() {
 }
 
 static void execute_mqtt_publish(void) {
+#ifdef FSM_TEST_MODE
+    ESP_LOGI(TAG, "[FSM_TEST_MODE] Simulando publicación MQTT.");
+    return;
+#else
     ESP_LOGI(TAG, "FSM requesting MQTT handler to publish...");
 
     procesar_y_publicar_qr(active_product);
 
     // MQTT_EVENT_PUBLISHED en mqtt_handler.c manda SUCCESS de forma asíncrona cuando el broker responde.
+#endif
 }
 
 static void save_to_local_buffer() {
@@ -85,9 +90,28 @@ void fsm_execute_transition(EventType event) {
     int table_size = sizeof(transition_table) / sizeof(transition_table[0]);
 
     for (int i = 0; i < table_size; i++) {
-        if (transition_table[i].state == current_state && transition_table[i].event == event) {
+        if (transition_table[i].state == current_state &&
+            transition_table[i].event == event) {
+
+            State previous_state = current_state;
             current_state = transition_table[i].next_state;
-            transition_table[i].action();
+
+            ESP_LOGI(TAG,
+                     "Transition: state %d + event %d -> state %d",
+                     previous_state,
+                     event,
+                     current_state);
+
+            if (transition_table[i].action != NULL) {
+                transition_table[i].action();
+            }
+
+            return;
         }
     }
+
+    ESP_LOGW(TAG,
+             "No transition found for state %d + event %d",
+             current_state,
+             event);
 }
