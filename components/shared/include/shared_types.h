@@ -2,21 +2,18 @@
 #define SHARED_TYPES_H
 
 #include <stdint.h>
-
-#define PRODUCT_ID_MAX_LEN      16
-#define PRODUCT_NAME_MAX_LEN    32
+#include <time.h>
 
 typedef struct {
-    char id[PRODUCT_ID_MAX_LEN];
-    char name[PRODUCT_NAME_MAX_LEN];
+    char id[16];
+    char name[32];
     uint32_t stock;
 } Product;
 
 typedef struct {
-  uint32_t timestap;
-  char product_id[16];
+    Product product;
+    time_t timestamp;
+    char state[16]; // OK, ERROR o ingreso MANUAL
 } HistoryEntry;
 
-
 #endif
-

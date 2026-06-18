@@ -80,5 +80,3 @@ En caso de que una PR sea rechazada, simplemente corregí lo que este mal en la 
 #### Cosas que estarían buenísimas
 La convención que seguimos en clase para la indentación de código es de 4 espacios, dicha indentación la hace automáticamente el formatter que usan en su IDE o editor de preferencia,
 estaría ***buenísimo*** que si lo tienen configurado en 2 espacios por ejemplo, lo pasen a 4.
-
-

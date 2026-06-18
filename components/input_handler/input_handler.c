@@ -6,6 +6,17 @@
 #include "fsm.h"
 #include "freertos/queue.h"
 
+/*
+ * ATENCION: Acá tenemos configurado un ejemplo de uso de la FSM. En el modulo
+ * input_handler se configuran las interrupciones y se define una ISR para los
+ * pines GPIO 1,2 y 3. En el input_handler.c se muestra cómo enviar un evento a
+ * la fsm_event_queue desde el propio modulo. Cada vez que el pin 1 se pone en
+ * HIGH, salta la ISR enviando un evento EV_BTN_SELECT a la cola. Esto hace que
+ * la FSM cambie de estado.
+ * */
+
+
+
 static const char *TAG = "INPUT_MODULE";
 extern QueueHandle_t fsm_event_queue; 
 
