@@ -8,11 +8,17 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "nvs.h"
 /* nvs_flash_init() lo hace el main via nvs_storage_init() — no lo llamamos acá */
 
+#include "fsm.h"
 #include "rgb_led.h"
+
+/* Cola de la FSM declarada en main/proyecto_final.c */
+extern QueueHandle_t fsm_event_queue;
 
 static const char *TAG = "wifi_manager";
 
@@ -141,6 +147,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         set_status_connected(ip_string);
         rgb_led_set_color(0, 255, 0); // Verde
         ESP_LOGI(TAG, "STA conectada. IP obtenida: %s", ip_string);
+
+        /* Notificar a la FSM que el Wi-Fi está listo */
+        EventType ev_wifi = EV_WIFI_CONNECT_SUCCESS;
+        xQueueSend(fsm_event_queue, &ev_wifi, 0);
     }
 }
 
@@ -191,8 +201,6 @@ esp_err_t wifi_manager_init(void)
 
     wifi_config_t ap_config = {
         .ap = {
-            .ssid            = WIFI_MANAGER_AP_SSID,
-            .ssid_len        = sizeof(WIFI_MANAGER_AP_SSID) - 1,
             .channel         = WIFI_MANAGER_AP_CHANNEL,
             .password        = WIFI_MANAGER_AP_PASS,
             .max_connection  = WIFI_MANAGER_MAX_STA_CONN,
@@ -200,6 +208,13 @@ esp_err_t wifi_manager_init(void)
             .pmf_cfg         = { .required = false },
         },
     };
+
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid),
+        "ESP32-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    ap_config.ap.ssid_len = strlen((char *)ap_config.ap.ssid);
+
     if (strlen(WIFI_MANAGER_AP_PASS) == 0)
         ap_config.ap.authmode = WIFI_AUTH_OPEN;
 
