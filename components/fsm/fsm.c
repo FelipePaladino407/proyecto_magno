@@ -28,7 +28,7 @@ static void handle_qr_scan(void)
      * Esto representa lo que más adelante vendría desde qr_handler.
      */
     const char *fake_qr_id = "PROD001";
-    const char *fake_qr_name = "Cigarros";
+    const char *fake_qr_name = "Bujias";
 
     Product stored_product;
     memset(&stored_product, 0, sizeof(Product));

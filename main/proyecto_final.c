@@ -38,13 +38,13 @@ static void fake_qr_test_task(void *pvParameters)
 
     vTaskDelay(pdMS_TO_TICKS(2000));
 
-    ESP_LOGI(TAG, "Enviando brownies podridos al Mullin..."); // PRIMER QR
+    ESP_LOGI(TAG, "QR 1..."); // PRIMER QR
     xQueueSend(fsm_event_queue, &ev, pdMS_TO_TICKS(100));
 
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     // los dos eventos van a tirar lo mismo
-    ESP_LOGI(TAG, "Limpiando la heladera de Alfredo...");
+    ESP_LOGI(TAG, "QR 2...");
     xQueueSend(fsm_event_queue, &ev, pdMS_TO_TICKS(100));
 
     vTaskDelete(NULL);
