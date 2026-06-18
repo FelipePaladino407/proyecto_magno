@@ -13,7 +13,6 @@ typedef struct {
 } Transition;
 
 static void handle_qr_scan() { ESP_LOGI(TAG, "Executing handle_qr_scan"); }
-static void handle_wifi_connect() { ESP_LOGI(TAG, "WIFI conectado"); } 
 static void example() {
   ESP_LOGI(TAG, "Example function, uuu");
   ESP_LOGI(TAG, "CURRENT STATE: %d", current_state);
@@ -22,7 +21,6 @@ static void example() {
 static const Transition transition_table[] = {
     {STATE_IDLE, EV_QR_CAPTURED, STATE_SCAN_PROCESSING, handle_qr_scan},
     {STATE_IDLE, EV_BTN_SELECT, STATE_MANUAL_SELECTION, example},
-    {STATE_IDLE, EV_WIFI_CONNECT_SUCCESS, STATE_IDLE, handle_wifi_connect},
     {STATE_SCAN_PROCESSING, EV_SCAN_INVALID, STATE_ERROR_DISPLAY, example},
     {STATE_SCAN_PROCESSING, EV_SCAN_SUCCESS, STATE_LOCAL_DB_LOOKUP, example},
     {STATE_ERROR_DISPLAY, EV_BTN_SELECT, STATE_IDLE, example},
