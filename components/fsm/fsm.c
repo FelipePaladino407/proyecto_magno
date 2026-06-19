@@ -1,15 +1,15 @@
-#include "include/fsm.h"
+#include "fsm.h"
 #include "mqtt_handler.h"
 #include "shared_types.h"
 #include <esp_log.h>
 
 static State current_state;
-static char *TAG = "FSM";
+static const char *TAG = "FSM";
 
 // Variable estática local para guardar el producto que se está procesando
 static Product active_product;
 
-// no está en el header porque los otros muchachos no necesitan verlo
+// No está en el header porque los otros módulos no necesitan verlo
 typedef struct {
     State state;
     EventType event;
@@ -17,20 +17,20 @@ typedef struct {
     void (*action)(void);
 } Transition;
 
-// -----------------------------------------------
-// -----------------------------------------------
-/* ACA DECLAREN LAS FUNCIONES QUE VAN A SER LLAMADAS POR LA TABLA DE TRANSICIONES */
+// -----------------------------------------------------
+// Acciones de la FSM
+// -----------------------------------------------------
 
-static void handle_qr_scan() {
+static void handle_qr_scan(void) {
     ESP_LOGI(TAG, "Executing handle_qr_scan");
 }
 
-// ESTO SE DEBERIA USAR DESDE QR_HANDLER PARA CARGAR UN PRODUCTO CUANDO LO DETECTA 
+// Esto se debería usar desde QR_HANDLER para cargar un producto cuando lo detecta
 void fsm_set_active_product(Product prod) {
     active_product = prod;
 }
 
-static void example() {
+static void example(void) {
     ESP_LOGI(TAG, "Example function, uuu");
     ESP_LOGI(TAG, "CURRENT STATE: %d", current_state);
 }
@@ -44,44 +44,52 @@ static void execute_mqtt_publish(void) {
 
     procesar_y_publicar_qr(active_product);
 
-    // MQTT_EVENT_PUBLISHED en mqtt_handler.c manda SUCCESS de forma asíncrona cuando el broker responde.
+    // MQTT_EVENT_PUBLISHED en mqtt_handler.c manda SUCCESS
+    // de forma asíncrona cuando el broker responde.
 #endif
 }
 
-static void save_to_local_buffer() {
+static void save_to_local_buffer(void) {
     ESP_LOGW(TAG, "Fallo de publicación. Guardando producto en NVS.");
-    // this is Piero's task
+    // Esta parte después la implementa Piero
 }
 
-// -----------------------------------------------
-// -----------------------------------------------
+// -----------------------------------------------------
+// Tabla de transiciones
+// -----------------------------------------------------
 
 static const Transition transition_table[] = {
     {STATE_IDLE, EV_QR_CAPTURED, STATE_SCAN_PROCESSING, handle_qr_scan},
     {STATE_IDLE, EV_BTN_SELECT, STATE_MANUAL_SELECTION, example},
+
     {STATE_SCAN_PROCESSING, EV_SCAN_INVALID, STATE_ERROR_DISPLAY, example},
     {STATE_SCAN_PROCESSING, EV_SCAN_SUCCESS, STATE_LOCAL_DB_LOOKUP, example},
+
     {STATE_ERROR_DISPLAY, EV_BTN_SELECT, STATE_IDLE, example},
     {STATE_ERROR_DISPLAY, EV_TIMEOUT, STATE_IDLE, example},
+
     {STATE_LOCAL_DB_LOOKUP, EV_PRODUCT_FOUND, STATE_DISPLAY_PRODUCT_INFO, example},
     {STATE_LOCAL_DB_LOOKUP, EV_PRODUCT_NOT_FOUND, STATE_PROMPT_ADD_NEW, example},
+
     {STATE_PROMPT_ADD_NEW, EV_BTN_EXIT, STATE_IDLE, example},
     {STATE_PROMPT_ADD_NEW, EV_TIMEOUT, STATE_IDLE, example},
     {STATE_PROMPT_ADD_NEW, EV_BTN_SELECT, STATE_DISPLAY_PRODUCT_INFO, example},
-    {STATE_DISPLAY_PRODUCT_INFO, EV_STOCK_UPDATED, STATE_MQTT_PUBLISHING, execute_mqtt_publish},
-    {STATE_MQTT_PUBLISHING, EV_MQTT_PUBLISH_SUCCESS, STATE_IDLE, example},
-    {STATE_MQTT_PUBLISHING, EV_MQTT_PUBLISH_FAILURE, STATE_IDLE,
-     save_to_local_buffer}, // lo mismo pero acá la función guarda en un buffer
 
+    {STATE_DISPLAY_PRODUCT_INFO, EV_STOCK_UPDATED, STATE_MQTT_PUBLISHING, execute_mqtt_publish},
+
+    {STATE_MQTT_PUBLISHING, EV_MQTT_PUBLISH_SUCCESS, STATE_IDLE, example},
+    {STATE_MQTT_PUBLISHING, EV_MQTT_PUBLISH_FAILURE, STATE_IDLE, save_to_local_buffer},
 };
 
 // -----------------------------------------------------
+// API pública de la FSM
 // -----------------------------------------------------
 
-void fsm_init() {
+void fsm_init(void) {
     current_state = STATE_IDLE;
 }
-State fsm_get_current_state() {
+
+State fsm_get_current_state(void) {
     return current_state;
 }
 
