@@ -2,6 +2,7 @@
 #define FSM
 
 typedef enum {
+    EV_WIFI_CONNECT_SUCCESS,
     EV_QR_CAPTURED,
     EV_SCAN_SUCCESS,
     EV_SCAN_INVALID,
