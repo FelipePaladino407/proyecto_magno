@@ -8,42 +8,22 @@
 </head>
 <body>
     <div class="card">
-        <div class="logo-row">
-            <div class="logo-icon">&#x25A0;</div>
-            <span class="logo-text">ESP32-S2 · Configuracion</span>
-        </div>
+        <h1>Configuracion Wi-Fi</h1>
+        <p>Ingresa los datos de la red a la que queres conectar la placa.</p>
 
-        <h1>Conectar a red Wi-Fi</h1>
-        <p class="subtitle">Ingresa los datos de la red a la que queres conectar la placa.</p>
-
-        <div class="status-bar">
-            <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Sin conexion</span>
-        </div>
-
-        <div class="field">
+        <form id="wifiForm" method="POST" action="/api/wifi">
             <label for="ssid">Nombre de red (SSID)</label>
             <input id="ssid" name="ssid" type="text"
                    maxlength="32" autocomplete="off"
-                   placeholder="Ej: MiRed_Casa" required>
-        </div>
+                   placeholder="Ejemplo: WiFi_Casa" required>
 
-        <div class="field">
             <label for="password">Contrasena</label>
             <input id="password" name="password" type="password"
                    maxlength="63" autocomplete="new-password"
-                   placeholder="Dejar vacio si la red es abierta">
-        </div>
+                   placeholder="Vacia si la red es abierta">
 
-        <button class="btn-primary" id="btnGuardar">
-            Guardar y conectar
-        </button>
-
-        <hr class="divider">
-
-        <button class="btn-secondary" id="btnOlvidar">
-            Olvidar red guardada
-        </button>
+            <button type="submit">Guardar y conectar</button>
+        </form>
 
         <p id="message"></p>
     </div>
