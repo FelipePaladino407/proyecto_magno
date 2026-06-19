@@ -5,6 +5,7 @@
 #include "logger.h"
 #include "ntp_handler.h"
 #include "mqtt_handler.h"
+#include "unit_test.h"
 #include "input_handler.h"
 #include <stdint.h>
 
@@ -33,7 +34,8 @@ void fsm_task(void *pvParameters) {
 void fsm_run_transition_tests(void);
 
 void app_main(void) {
-  /**fsm_init();
+  
+  fsm_init();
   fsm_event_queue = xQueueCreate(20, sizeof(EventType));
 
   if (fsm_event_queue == NULL) {
@@ -53,13 +55,10 @@ void app_main(void) {
   // CONFIGURACION DE INTERRUPCIONES DE GPIO
   // IRRELEVANTE E INUTIL
   // button_int_config();
-*/
-  /*
-   */
 
-   fsm_run_transition_tests();
+  fsm_run_transition_tests();
 
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+  while (true) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+  }
 }

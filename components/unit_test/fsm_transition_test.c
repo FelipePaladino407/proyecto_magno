@@ -1,3 +1,4 @@
+#include "unit_test.h"
 #include "fsm.h"
 #include "esp_log.h"
 
