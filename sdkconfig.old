@@ -537,7 +537,7 @@ CONFIG_IDF_TARGET_ARCH="xtensa"
 # default:
 CONFIG_IDF_TARGET="esp32s2"
 # default:
-CONFIG_IDF_INIT_VERSION="6.0.0"
+CONFIG_IDF_INIT_VERSION="6.0.1"
 # default:
 CONFIG_IDF_TARGET_ESP32S2=y
 # default:
@@ -1206,6 +1206,33 @@ CONFIG_LIBC_ASSERT_BUFFER_SIZE=200
 # default:
 # CONFIG_ESP_MM_CACHE_MSYNC_C2M_CHUNKED_OPS is not set
 # end of ESP-MM: Memory Management Configurations
+
+#
+# ESP NETIF Adapter
+#
+# default:
+CONFIG_ESP_NETIF_LOST_IP_TIMER_ENABLE=y
+# default:
+CONFIG_ESP_NETIF_IP_LOST_TIMER_INTERVAL=120
+# default:
+# CONFIG_ESP_NETIF_PROVIDE_CUSTOM_IMPLEMENTATION is not set
+# default:
+CONFIG_ESP_NETIF_TCPIP_LWIP=y
+# default:
+# CONFIG_ESP_NETIF_LOOPBACK is not set
+# default:
+CONFIG_ESP_NETIF_USES_TCPIP_WITH_BSD_API=y
+# default:
+CONFIG_ESP_NETIF_REPORT_DATA_TRAFFIC=y
+# default:
+CONFIG_ESP_NETIF_RECEIVE_REPORT_ERRORS=y
+# default:
+# CONFIG_ESP_NETIF_L2_TAP is not set
+# default:
+# CONFIG_ESP_NETIF_BRIDGE_EN is not set
+# default:
+# CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF is not set
+# end of ESP NETIF Adapter
 
 #
 # Partition API Configuration
@@ -2364,6 +2391,19 @@ CONFIG_MBEDTLS_PKCS1_V21=y
 # end of mbedTLS
 
 #
+# NVS
+#
+# default:
+# CONFIG_NVS_ENCRYPTION is not set
+# default:
+# CONFIG_NVS_ASSERT_ERROR_CHECK is not set
+# default:
+# CONFIG_NVS_LEGACY_DUP_KEYS_COMPATIBILITY is not set
+# default:
+# CONFIG_NVS_BDL_STACK is not set
+# end of NVS
+
+#
 # PThreads
 #
 # default:
@@ -2529,6 +2569,15 @@ CONFIG_VFS_SEMIHOSTFS_MAX_MOUNT_POINTS=1
 # default:
 CONFIG_VFS_INITIALIZE_DEV_NULL=y
 # end of Virtual file system
+
+#
+# cJSON
+#
+# default:
+CONFIG_CJSON_NESTING_LIMIT=1000
+# default:
+CONFIG_CJSON_CIRCULAR_LIMIT=10000
+# end of cJSON
 
 #
 # ESP-MQTT Configurations

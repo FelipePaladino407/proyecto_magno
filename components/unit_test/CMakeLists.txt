@@ -1,0 +1,9 @@
+idf_component_register(
+    SRCS
+        "fsm_transition_test.c"
+    INCLUDE_DIRS
+        "include"
+    PRIV_REQUIRES
+        fsm
+        log
+)

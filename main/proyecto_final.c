@@ -5,6 +5,7 @@
 #include "logger.h"
 #include "ntp_handler.h"
 #include "mqtt_handler.h"
+#include "unit_test.h"
 #include "input_handler.h"
 #include <stdint.h>
 
@@ -30,7 +31,10 @@ void fsm_task(void *pvParameters) {
   }
 }
 
+void fsm_run_transition_tests(void);
+
 void app_main(void) {
+  
   fsm_init();
   fsm_event_queue = xQueueCreate(20, sizeof(EventType));
 
@@ -52,5 +56,9 @@ void app_main(void) {
   // IRRELEVANTE E INUTIL
   // button_int_config();
 
-  xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
+  fsm_run_transition_tests();
+
+  while (true) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+  }
 }
