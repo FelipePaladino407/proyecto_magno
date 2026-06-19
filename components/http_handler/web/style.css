@@ -1,0 +1,204 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+
+    /* Fondo degradado oscuro — reemplazable por una imagen:
+       background: url('fondo.jpg') center/cover no-repeat; */
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+}
+
+/* Patrón sutil sobre el fondo */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ---- Card ---- */
+.card {
+    background: rgba(255, 255, 255, 0.97);
+    border-radius: 16px;
+    padding: 36px 32px;
+    width: 100%;
+    max-width: 420px;
+    position: relative;
+    z-index: 1;
+}
+
+/* ---- Logo row ---- */
+.logo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+}
+
+.logo-icon {
+    width: 36px;
+    height: 36px;
+    background: #0f2027;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.logo-text {
+    font-size: 13px;
+    font-weight: 500;
+    color: #555;
+    letter-spacing: 0.03em;
+}
+
+/* ---- Títulos ---- */
+h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #111;
+    margin-bottom: 6px;
+}
+
+.subtitle {
+    font-size: 13px;
+    color: #777;
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+/* ---- Barra de estado ---- */
+.status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f5f5f5;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 24px;
+    font-size: 13px;
+    color: #555;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ccc;
+    flex-shrink: 0;
+}
+
+.status-dot.connected {
+    background: #2a9d5c;
+}
+
+.status-dot.connecting {
+    background: #e09c2a;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+}
+
+/* ---- Campos ---- */
+.field {
+    margin-bottom: 16px;
+}
+
+.field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #666;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.field input {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #111;
+    background: #fafafa;
+    transition: border-color 0.15s, background 0.15s;
+    outline: none;
+}
+
+.field input:focus {
+    border-color: #203a43;
+    background: #fff;
+}
+
+/* ---- Botones ---- */
+.btn-primary {
+    width: 100%;
+    padding: 12px;
+    background: #0f2027;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background 0.15s;
+}
+
+.btn-primary:hover {
+    background: #203a43;
+}
+
+.btn-secondary {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    color: #aaa;
+    border: 1px solid #e8e8e8;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btn-secondary:hover {
+    background: #f5f5f5;
+    color: #555;
+}
+
+/* ---- Divisor ---- */
+.divider {
+    border: none;
+    border-top: 1px solid #f0f0f0;
+    margin: 20px 0;
+}
+
+/* ---- Mensaje ---- */
+#message {
+    font-size: 13px;
+    margin-top: 14px;
+    min-height: 18px;
+    text-align: center;
+    color: #777;
+}
+
+#message.ok  { color: #2a9d5c; }
+#message.err { color: #cc3333; }
