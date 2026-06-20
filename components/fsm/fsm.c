@@ -1,6 +1,7 @@
 #include "fsm.h"
 #include "mqtt_handler.h"
 #include "shared_types.h"
+#include "wifi_manager.h"
 #include <esp_log.h>
 
 static State current_state;
@@ -35,6 +36,12 @@ static void example(void) {
     ESP_LOGI(TAG, "CURRENT STATE: %d", current_state);
 }
 
+static void handle_wifi() {
+    ESP_LOGI(TAG, "Wi-Fi conectado, listo para operar");
+    
+    // Acá podrían ir otras cosas que quieran hacer cuando el wifi se conecta, como iniciar el NTP o algo así
+}
+
 static void execute_mqtt_publish(void) {
 #ifdef FSM_TEST_MODE
     ESP_LOGI(TAG, "[FSM_TEST_MODE] Simulando publicación MQTT.");
@@ -61,7 +68,7 @@ static void save_to_local_buffer(void) {
 static const Transition transition_table[] = {
     {STATE_IDLE, EV_QR_CAPTURED, STATE_SCAN_PROCESSING, handle_qr_scan},
     {STATE_IDLE, EV_BTN_SELECT, STATE_MANUAL_SELECTION, example},
-
+    {STATE_IDLE, EV_WIFI_CONNECT_SUCCESS, STATE_IDLE, handle_wifi}, 
     {STATE_SCAN_PROCESSING, EV_SCAN_INVALID, STATE_ERROR_DISPLAY, example},
     {STATE_SCAN_PROCESSING, EV_SCAN_SUCCESS, STATE_LOCAL_DB_LOOKUP, example},
 

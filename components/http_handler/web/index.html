@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuracion Wi-Fi</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="card">
+        <h1>Configuracion Wi-Fi</h1>
+        <p>Ingresa los datos de la red a la que queres conectar la placa.</p>
+
+        <form id="wifiForm" method="POST" action="/api/wifi">
+            <label for="ssid">Nombre de red (SSID)</label>
+            <input id="ssid" name="ssid" type="text"
+                   maxlength="32" autocomplete="off"
+                   placeholder="Ejemplo: WiFi_Casa" required>
+
+            <label for="password">Contrasena</label>
+            <input id="password" name="password" type="password"
+                   maxlength="63" autocomplete="new-password"
+                   placeholder="Vacia si la red es abierta">
+
+            <button type="submit">Guardar y conectar</button>
+        </form>
+
+        <p id="message"></p>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
