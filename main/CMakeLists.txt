@@ -11,5 +11,6 @@ idf_component_register(SRCS
                     mqtt_handler
                     input_handler
                     unit_test
+                    product_db
                     
                     INCLUDE_DIRS ".")

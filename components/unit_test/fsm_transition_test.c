@@ -57,6 +57,8 @@ static bool run_fsm_case(const char *test_name,
 }
 
 void fsm_run_transition_tests(void) {
+    fsm_set_auto_events_enabled(false);
+
     int passed = 0;
     int total = 0;
 
@@ -208,4 +210,7 @@ void fsm_run_transition_tests(void) {
     ESP_LOGI(TAG, "==============================");
     ESP_LOGI(TAG, "FSM TEST SUMMARY: %d/%d passed", passed, total);
     ESP_LOGI(TAG, "==============================");
+
+    fsm_set_auto_events_enabled(true);
 }
+

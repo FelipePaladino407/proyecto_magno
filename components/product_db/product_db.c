@@ -25,6 +25,32 @@ void product_db_init(void)
     hash_table_init(&s_product_table);
 }
 
+bool product_db_upsert_product(const char *id,
+                               const char *name,
+                               uint32_t stock,
+                               Product *out_product)
+{
+    if (id == NULL || name == NULL || id[0] == '\0') {
+        return false;
+    }
+
+    Product product;
+    memset(&product, 0, sizeof(Product));
+    safe_copy(product.id, id, sizeof(product.id));
+    safe_copy(product.name, name, sizeof(product.name));
+    product.stock = stock;
+
+    if (!hash_table_insert(&s_product_table, product)) {
+        return false;
+    }
+
+    if (out_product != NULL) {
+        *out_product = product;
+    }
+
+    return true;
+}
+
 bool product_db_register_scan(const char *id,
                               const char *name,
                               Product *out_product)
@@ -123,3 +149,4 @@ uint32_t product_db_get_count(void)
 {
     return (uint32_t)s_product_table.count;
 }
+

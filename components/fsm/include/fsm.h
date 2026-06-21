@@ -1,5 +1,8 @@
-#ifndef FSM
-#define FSM
+#ifndef FSM_H
+#define FSM_H
+
+#include <stdbool.h>
+#include "shared_types.h"
 
 typedef enum {
     EV_WIFI_CONNECT_SUCCESS,
@@ -11,6 +14,7 @@ typedef enum {
     EV_STOCK_UPDATED,
     EV_MQTT_CONNECT_FAILURE,
     EV_MQTT_CONNECT_SUCCESS,
+    EV_MQTT_PRODUCT_RECEIVED,
     EV_MQTT_PUBLISH_SUCCESS,
     EV_MQTT_PUBLISH_FAILURE,
     EV_BTN_UP,
@@ -32,8 +36,25 @@ typedef enum {
     STATE_ERROR_DISPLAY
 } State;
 
-void fsm_init();
-State fsm_get_current_state();
+typedef struct {
+    void (*display_product)(const Product *product);
+    void (*display_message)(const char *title, const char *message);
+
+    bool (*publish_qr)(const Product *product);
+    bool (*publish_manual)(const Product *product);
+    bool (*publish_error)(const char *message);
+} FsmCallbacks;
+
+void fsm_init(void);
+State fsm_get_current_state(void);
 void fsm_execute_transition(EventType event);
 
-#endif // !FSM
+void fsm_register_callbacks(const FsmCallbacks *callbacks);
+void fsm_set_auto_events_enabled(bool enabled);
+bool fsm_post_event(EventType event);
+
+bool fsm_on_qr_detected(const char *id, const char *name);
+bool fsm_on_qr_invalid(const char *reason);
+bool fsm_on_mqtt_product_received(const Product *product);
+
+#endif // FSM_H

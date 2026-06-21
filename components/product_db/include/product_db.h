@@ -7,6 +7,11 @@
 
 void product_db_init(void);
 
+bool product_db_upsert_product(const char *id,
+                               const char *name,
+                               uint32_t stock,
+                               Product *out_product);
+
 bool product_db_register_scan(const char *id,
                               const char *name,
                               Product *out_product);
