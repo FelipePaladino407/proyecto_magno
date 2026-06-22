@@ -203,12 +203,12 @@ void iniciar_mqtt(void) {
     esp_mqtt_client_start(client);
 }
 
-static void publicar_evento(Product producto, const char *estado, const char *topic) {
+static bool publicar_evento(Product producto, const char *estado, const char *topic) {
     time_t timestamp = 0;
 
     if (!get_timestamp(&timestamp)) { // Guarda la hora actual como time_t
         ESP_LOGW(TAG, "No se pudo obtener timestamp valido");
-        return;
+        return false;
     }
 
     if (logger_local_mqtt != NULL) {
@@ -221,7 +221,7 @@ static void publicar_evento(Product producto, const char *estado, const char *to
 
     if (cliente_mqtt_global == NULL) {
         ESP_LOGW(TAG, "MQTT no conectado, no se publica pero ya quedo guardado en el logger");
-        return; // para asegurar que estamos conectados
+        return false; // para asegurar que estamos conectados
     }
 
     char payload[256];
@@ -233,20 +233,26 @@ static void publicar_evento(Product producto, const char *estado, const char *to
         DEVICE_ID, producto.id, producto.name, (unsigned long)producto.stock, (long long)timestamp, estado);
 
     // Publicamos el texto armado
-    esp_mqtt_client_publish(cliente_mqtt_global, topic, payload, 0, 1, 0);
+    int msg_id = esp_mqtt_client_publish(cliente_mqtt_global, topic, payload, 0, 1, 0);
+    
+    if (msg_id < 0) {
+      ESP_LOGW(TAG, "No se pudo publicar mensaje MQTT");
+      return false;
+    }
 
     ESP_LOGI(TAG, "Producto publicado: %s", payload);
+    return true;
 }
 
-void procesar_y_publicar_qr(Product producto_escaneado) {
-    publicar_evento(producto_escaneado, "OK", "sistema/escaner/evento");
+bool procesar_y_publicar_qr(Product producto_escaneado) {
+    return publicar_evento(producto_escaneado, "OK", "sistema/escaner/evento");
 }
 
-void procesar_y_publicar_manual(Product producto_manual) {
-    publicar_evento(producto_manual, "MANUAL", "sistema/escaner/evento");
+bool procesar_y_publicar_manual(Product producto_manual) {
+    return publicar_evento(producto_manual, "MANUAL", "sistema/escaner/evento");
 }
 
-void procesar_y_publicar_error(const char *mensaje_error) {
+bool procesar_y_publicar_error(const char *mensaje_error) {
     Product producto_error;
     memset(&producto_error, 0, sizeof(producto_error));
 
@@ -258,5 +264,5 @@ void procesar_y_publicar_error(const char *mensaje_error) {
 
     producto_error.stock = 0;
 
-    publicar_evento(producto_error, "ERROR", "sistema/escaner/error");
+    return publicar_evento(producto_error, "ERROR", "sistema/escaner/error");
 }
