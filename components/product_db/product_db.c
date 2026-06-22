@@ -25,46 +25,71 @@ void product_db_init(void)
     hash_table_init(&s_product_table);
 }
 
-bool product_db_register_scan(const char *id,
-                              const char *name,
-                              Product *out_product)
+bool product_db_upsert_product(const char *id,
+                               const char *name,
+                               uint32_t stock,
+                               Product *out_product)
 {
     if (id == NULL || name == NULL || id[0] == '\0') {
         return false;
     }
 
-    Product *existing_product = hash_table_find(&s_product_table, id);
+    Product product;
+    memset(&product, 0, sizeof(product));
 
-    if (existing_product != NULL) {
-        existing_product->stock++;
+    safe_copy(product.id, id, sizeof(product.id));
+    safe_copy(product.name, name, sizeof(product.name));
+    product.stock = stock;
 
-        if (out_product != NULL) {
-            *out_product = *existing_product;
-        }
-
-        return true;
-    }
-
-    if (hash_table_is_full(&s_product_table)) {
-        return false;
-    }
-
-    Product new_product;
-    memset(&new_product, 0, sizeof(Product));
-
-    safe_copy(new_product.id, id, sizeof(new_product.id));
-    safe_copy(new_product.name, name, sizeof(new_product.name));
-    new_product.stock = 1;
-
-    if (!hash_table_insert(&s_product_table, new_product)) {
+    if (!hash_table_insert(&s_product_table, product)) {
         return false;
     }
 
     if (out_product != NULL) {
-        *out_product = new_product;
+        *out_product = product;
     }
 
     return true;
+}
+
+bool product_db_add_stock(const char *id,
+                          uint32_t quantity,
+                          Product *out_product)
+{
+    if (id == NULL || id[0] == '\0' || quantity == 0) {
+        return false;
+    }
+
+    Product *product = hash_table_find(&s_product_table, id);
+
+    if (product == NULL) {
+        return false;
+    }
+
+    product->stock += quantity;
+
+    if (out_product != NULL) {
+        *out_product = *product;
+    }
+
+    return true;
+}
+
+bool product_db_register_scan(const char *id,
+                              const char *name,
+                              Product *out_product)
+{
+    Product existing_product;
+
+    if (id == NULL || name == NULL || id[0] == '\0') {
+        return false;
+    }
+
+    if (product_db_find_by_id(id, &existing_product)) {
+        return product_db_add_stock(id, 1, out_product);
+    }
+
+    return product_db_upsert_product(id, name, 1, out_product);
 }
 
 bool product_db_find_by_id(const char *id,
@@ -123,3 +148,4 @@ uint32_t product_db_get_count(void)
 {
     return (uint32_t)s_product_table.count;
 }
+
