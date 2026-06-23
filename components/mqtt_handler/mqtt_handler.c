@@ -33,27 +33,59 @@ static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";      // CAM â†
 static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry"; // LCD â†’ ThingsBoard Integration
 
 #define DEVICE_IS_LCD 0
-
-static const char *catalogo[] = {
-    "Leche Entera 1L",        "Leche Descremada 1L",     "Yogur Natural 200g",
-    "Yogur Frutilla 200g",    "Queso Mozzarella 400g",   "Queso Colonia 300g",
-    "Manteca 200g",           "Crema de Leche 200ml",    "Huevos x12",
-    "Pan de Molde 500g",      "Pan Lactal Integral 400g","Facturas x6",
-    "Arroz Largo Fino 1kg",   "Fideos Spaghetti 500g",   "Fideos Mono 500g",
-    "Harina 0000 1kg",        "Azucar Blanca 1kg",       "Aceite Girasol 900ml",
-    "Aceite de Oliva 500ml",  "Sal Fina 500g",           "Lentejas 500g",
-    "Garbanzos 500g",         "Porotos Negros 500g",     "Tomate en Lata 400g",
-    "Atun al Natural 170g",   "Atun en Aceite 170g",     "Arvejas en Lata 300g",
-    "Choclo en Lata 300g",    "Mermelada Frutilla 390g", "Dulce de Leche 400g",
-    "Cafe Molido 250g",       "Te Negro x20",            "Agua Mineral 1.5L",
-    "Jugo de Naranja 1L",     "Gaseosa Cola 2L",         "Gaseosa Naranja 2L",
-    "Cerveza Lata 473ml",     "Vino Tinto 750ml",        "Papas Fritas 150g",
-    "Galletitas Dulces 200g", "Galletitas Saladas 150g", "Chocolate 100g",
-    "Mayonesa 500g",          "Ketchup 400g",            "Mostaza 200g",
-    "Jabon en Polvo 1kg",     "Lavandina 1L",            "Detergente 750ml",
-    "Papel Higienico x4",     "Shampoo 400ml",
+static const ProductoCatalogo catalogo_completo[] = {
+    {"LAC-LEC-001", "Leche Entera 1L"},
+    {"LAC-LEC-002", "Leche Descremada 1L"},
+    {"LAC-YOG-001", "Yogur Natural 200g"},
+    {"LAC-YOG-002", "Yogur Frutilla 200g"},
+    {"LAC-QUE-001", "Queso Mozzarella 400g"},
+    {"LAC-QUE-002", "Queso Colonia 300g"},
+    {"LAC-MAN-001", "Manteca 200g"},
+    {"LAC-CRE-001", "Crema de Leche 200ml"},
+    {"GRA-HUE-012", "Huevos x12"},
+    {"PAN-MOL-001", "Pan de Molde 500g"},
+    {"PAN-INT-001", "Pan Lactal Integral 400g"},
+    {"PAN-FAC-006", "Facturas x6"},
+    {"GRA-ARR-001", "Arroz Largo Fino 1kg"},
+    {"GRA-FID-001", "Fideos Spaghetti 500g"},
+    {"GRA-FID-002", "Fideos Mono 500g"},
+    {"GRA-HAR-001", "Harina 0000 1kg"},
+    {"GRA-AZU-001", "Azucar Blanca 1kg"},
+    {"GRA-ACE-001", "Aceite Girasol 900ml"},
+    {"GRA-ACE-002", "Aceite de Oliva 500ml"},
+    {"GRA-SAL-001", "Sal Fina 500g"},
+    {"GRA-LEN-001", "Lentejas 500g"},
+    {"GRA-GAR-001", "Garbanzos 500g"},
+    {"GRA-POR-001", "Porotos Negros 500g"},
+    {"CON-TOM-001", "Tomate en Lata 400g"},
+    {"CON-ATU-001", "Atun al Natural 170g"},
+    {"CON-ATU-002", "Atun en Aceite 170g"},
+    {"CON-ARV-001", "Arvejas en Lata 300g"},
+    {"CON-CHO-001", "Choclo en Lata 300g"},
+    {"CON-MER-001", "Mermelada Frutilla 390g"},
+    {"CON-DUL-001", "Dulce de Leche 400g"},
+    {"BEB-CAF-001", "Cafe Molido 250g"},
+    {"BEB-TE--001", "Te Negro x20"},
+    {"BEB-AGU-001", "Agua Mineral 1.5L"},
+    {"BEB-JUG-001", "Jugo de Naranja 1L"},
+    {"BEB-GAS-001", "Gaseosa Cola 2L"},
+    {"BEB-GAS-002", "Gaseosa Naranja 2L"},
+    {"BEB-CER-001", "Cerveza Lata 473ml"},
+    {"BEB-VIN-001", "Vino Tinto 750ml"},
+    {"SNK-PAP-001", "Papas Fritas 150g"},
+    {"SNK-GAL-001", "Galletitas Dulces 200g"},
+    {"SNK-GAL-002", "Galletitas Saladas 150g"},
+    {"SNK-CHO-001", "Chocolate 100g"},
+    {"SAL-MAY-001", "Mayonesa 500g"},
+    {"SAL-KET-001", "Ketchup 400g"},
+    {"SAL-MOS-001", "Mostaza 200g"},
+    {"LIM-JAB-001", "Jabon en Polvo 1kg"},
+    {"LIM-LAV-001", "Lavandina 1L"},
+    {"LIM-DET-001", "Detergente 750ml"},
+    {"HIG-PAP-004", "Papel Higienico x4"},
+    {"HIG-SHA-001", "Shampoo 400ml"}
 };
-#define CATALOGO_SIZE (sizeof(catalogo) / sizeof(catalogo[0]))
+#define CATALOGO_SIZE (sizeof(catalogo_completo) / sizeof(catalogo_completo[0]))
 
 static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
 {
@@ -65,10 +97,19 @@ static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
         int len = 0;
 
         for (int j = 0; j < 10 && i < (int)CATALOGO_SIZE; j++, i++) {
+            Product producto_db;
+            uint32_t stock_actual = 0;
+
+            // Consultar a la hash table si el producto ya existe mediante su ID
+            if (product_db_find_by_id(catalogo_completo[i].id, &producto_db)) {
+                stock_actual = producto_db.stock; // Si existe, levantamos su stock real
+            }
+
             len += snprintf(values + len, sizeof(values) - len,
-                            "%s\"%s\":0",
+                            "%s\"%s\":%lu",
                             (j == 0) ? "" : ",",
-                            catalogo[i]);
+                            catalogo_completo[i].nombre,
+                            (unsigned long)stock_actual);
         }
 
         time_t ts = 0;
