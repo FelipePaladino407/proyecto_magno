@@ -16,4 +16,8 @@ typedef struct {
     char state[16]; // OK, ERROR o ingreso MANUAL
 } HistoryEntry;
 
+#define CATALOGO_SIZE 50 
+
+extern const ProductoCatalogo catalogo_completo[CATALOGO_SIZE];
+
 #endif
