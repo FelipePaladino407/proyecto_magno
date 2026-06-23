@@ -17,6 +17,7 @@
 #include "unit_test.h"
 #include "input_handler.h"
 #include "product_db.h"
+#include "pending_queue.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,6 +30,29 @@ static Logger logger_local;
 static Logger logger_recibido;
 
 #define ENABLE_FAKE_QR_DEMO 1
+
+static void network_services_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    wifi_manager_status_t status;
+
+    while (true) {
+        wifi_manager_get_status(&status);
+
+        if (status.connected) {
+            ESP_LOGI(TAG, "WiFi listo con IP %s. Inicializando NTP y MQTT...",
+                     status.ip_address);
+
+            init_time();
+            iniciar_mqtt();
+
+            vTaskDelete(NULL);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
 
 static void lcd_display_product_cb(const Product *product)
 {
@@ -61,6 +85,20 @@ static bool mqtt_publish_qr_cb(const Product *product)
 static bool mqtt_publish_error_cb(const char *message)
 {
    return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
+}
+
+static bool mqtt_store_pending_qr_cb(const Product *product)
+{
+    if (product == NULL) {
+        return false;
+    }
+
+    return mqtt_handler_store_pending_qr(*product);
+}
+
+static bool mqtt_flush_pending_cb(void)
+{
+    return mqtt_handler_flush_pending();
 }
 
 static void post_touch_event(EventType event)
@@ -155,6 +193,8 @@ void app_main(void)
         .display_message = lcd_display_message_cb,
         .publish_qr = mqtt_publish_qr_cb,
         .publish_error = mqtt_publish_error_cb,
+        .store_pending_qr = mqtt_store_pending_qr_cb,
+        .flush_pending = mqtt_flush_pending_cb,
     };
 
     product_db_init();
@@ -174,6 +214,7 @@ void app_main(void)
     rgb_led_init();
 
     ESP_ERROR_CHECK(nvs_storage_init());
+    pending_queue_init();
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(http_handler_start());
 
@@ -184,8 +225,12 @@ void app_main(void)
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
-    init_time();
-    iniciar_mqtt();
+    xTaskCreate(&network_services_task,
+            "NETWORK_SERVICES",
+            4096,
+            NULL,
+            1,
+            NULL);
 
 #if ENABLE_FAKE_QR_DEMO
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);

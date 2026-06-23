@@ -7,6 +7,7 @@
 #include "logger.h"
 #include "mqtt_handler.h"
 #include "ntp_handler.h"
+#include "pending_queue.h"
 #include "shared_types.h"
 
 #include <stdbool.h>
@@ -203,25 +204,20 @@ void iniciar_mqtt(void) {
     esp_mqtt_client_start(client);
 }
 
-static bool publicar_evento(Product producto, const char *estado, const char *topic) {
-    time_t timestamp = 0;
-
-    if (!get_timestamp(&timestamp)) { // Guarda la hora actual como time_t
-        ESP_LOGW(TAG, "No se pudo obtener timestamp valido");
+static bool publicar_evento_con_timestamp(Product producto,
+                                           const char *estado,
+                                           const char *topic,
+                                           time_t timestamp,
+                                           bool guardar_en_logger_local)
+{
+    if (timestamp == 0 || estado == NULL || topic == NULL) {
+        ESP_LOGW(TAG, "No se puede publicar: evento invalido");
         return false;
     }
 
-    if (logger_local_mqtt != NULL) {
-        logger_push(logger_local_mqtt, producto, timestamp,
-                    estado); // Lo mete al logger junto con la struct product que tiene el producto, su id, stock,
-                             // timestamp y estado
-    } else {
-        ESP_LOGW(TAG, "No hay logger local configurado");
-    }
-
     if (cliente_mqtt_global == NULL) {
-        ESP_LOGW(TAG, "MQTT no conectado, no se publica pero ya quedo guardado en el logger");
-        return false; // para asegurar que estamos conectados
+        ESP_LOGW(TAG, "MQTT no conectado, no se publica ahora");
+        return false;
     }
 
     char payload[256];
@@ -234,14 +230,32 @@ static bool publicar_evento(Product producto, const char *estado, const char *to
 
     // Publicamos el texto armado
     int msg_id = esp_mqtt_client_publish(cliente_mqtt_global, topic, payload, 0, 1, 0);
-    
+
     if (msg_id < 0) {
-      ESP_LOGW(TAG, "No se pudo publicar mensaje MQTT");
-      return false;
+        ESP_LOGW(TAG, "No se pudo publicar mensaje MQTT");
+        return false;
+    }
+
+    if (guardar_en_logger_local && logger_local_mqtt != NULL) {
+        logger_push(logger_local_mqtt, producto, timestamp, estado);
+    } else if (guardar_en_logger_local) {
+        ESP_LOGW(TAG, "No hay logger local configurado");
     }
 
     ESP_LOGI(TAG, "Producto publicado: %s", payload);
     return true;
+}
+
+static bool publicar_evento(Product producto, const char *estado, const char *topic)
+{
+    time_t timestamp = 0;
+
+    if (!get_timestamp(&timestamp)) { // Guarda la hora actual como time_t
+        ESP_LOGW(TAG, "No se pudo obtener timestamp valido");
+        return false;
+    }
+
+    return publicar_evento_con_timestamp(producto, estado, topic, timestamp, true);
 }
 
 bool procesar_y_publicar_qr(Product producto_escaneado) {
@@ -266,3 +280,59 @@ bool procesar_y_publicar_error(const char *mensaje_error) {
 
     return publicar_evento(producto_error, "ERROR", "sistema/escaner/error");
 }
+
+bool mqtt_handler_store_pending_qr(Product producto_escaneado)
+{
+    time_t timestamp = 0;
+
+    if (!get_timestamp(&timestamp)) {
+        ESP_LOGW(TAG, "No se pudo obtener timestamp valido para guardar pendiente");
+        return false;
+    }
+
+    return pending_queue_push(producto_escaneado, timestamp, "OK", "sistema/escaner/evento");
+}
+
+bool mqtt_handler_flush_pending(void)
+{
+    if (cliente_mqtt_global == NULL) {
+        ESP_LOGW(TAG, "MQTT no conectado: no se puede reenviar cola pendiente");
+        return false;
+    }
+
+    int initial_count = pending_queue_count();
+    if (initial_count == 0) {
+        ESP_LOGI(TAG, "No hay eventos pendientes para reenviar");
+        return true;
+    }
+
+    ESP_LOGI(TAG, "Reenviando %d evento(s) pendiente(s) desde NVS", initial_count);
+
+    while (pending_queue_count() > 0) {
+        PendingMqttEvent pending_event;
+        memset(&pending_event, 0, sizeof(pending_event));
+
+        if (!pending_queue_peek(&pending_event)) {
+            ESP_LOGW(TAG, "No se pudo leer el proximo evento pendiente");
+            return false;
+        }
+
+        if (!publicar_evento_con_timestamp(pending_event.product,
+                                           pending_event.state,
+                                           pending_event.topic,
+                                           pending_event.timestamp,
+                                           true)) {
+            ESP_LOGW(TAG, "Se corta reenvio: no se pudo publicar el pendiente mas viejo");
+            return false;
+        }
+
+        if (!pending_queue_pop()) {
+            ESP_LOGW(TAG, "Publicado pendiente pero no se pudo quitar de NVS");
+            return false;
+        }
+    }
+
+    ESP_LOGI(TAG, "Todos los eventos pendientes fueron reenviados");
+    return true;
+}
+
