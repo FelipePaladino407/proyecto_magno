@@ -17,8 +17,7 @@
 static const char *TAG = "MQTT_APP";
 extern QueueHandle_t fsm_event_queue;
 
-static esp_mqtt_client_handle_t cliente_hivemq      = NULL;
-static esp_mqtt_client_handle_t cliente_thingsboard = NULL;
+static esp_mqtt_client_handle_t cliente_hivemq = NULL;
 
 static Logger *logger_local_mqtt    = NULL;
 static Logger *logger_recibido_mqtt = NULL;
@@ -28,15 +27,10 @@ static Logger *logger_recibido_mqtt = NULL;
 ///////////////////////////////
 static const char *DEVICE_ID = "CAM_01";
 
-// HiveMQ Cloud — comunicación entre placas
+// HiveMQ público — broker único para todo
 static const char *HIVEMQ_URI         = "mqtt://broker.hivemq.com:1883";
-static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";
-
-// ThingsBoard Cloud — solo LCD publica aquí
-static const char *TB_URI           = "mqtt://mqtt.thingsboard.cloud:1883";
-static const char *TB_TOKEN         = "M53eRKClWvrZIWVSQRVL";
-static const char *TOPIC_TELEMETRY  = "v1/devices/me/telemetry";
-static const char *TOPIC_ATTRIBUTES = "v1/devices/me/attributes";
+static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";      // CAM → LCD + ThingsBoard Integration
+static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry"; // LCD → ThingsBoard Integration
 
 #define DEVICE_IS_LCD 0
 
@@ -85,7 +79,7 @@ static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
                  (long long)ts * 1000LL,
                  values);
 
-        esp_mqtt_client_publish(client, TOPIC_COMUNICACION, payload, 0, 1, 0);
+        esp_mqtt_client_publish(client, TOPIC_TELEMETRY_HV, payload, 0, 1, 0);
         ESP_LOGI(TAG, "Catalogo inicial publicado [%d/%d]: %s",
                  i, (int)CATALOGO_SIZE, payload);
 
@@ -121,7 +115,7 @@ static bool procesar_json_recibido(const char *mensaje)
     cJSON *estado_json    = cJSON_GetObjectItem(json, "estado");
 
     if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {
-        ESP_LOGI(TAG, "Mensaje propio recibido, no se guarda en logger recibido");
+        ESP_LOGI(TAG, "Mensaje propio recibido, ignorado");
         cJSON_Delete(json);
         return true;
     }
@@ -152,22 +146,22 @@ static bool procesar_json_recibido(const char *mensaje)
                  (unsigned long)producto_recibido.stock, (long long)timestamp, estado);
 
 #if DEVICE_IS_LCD
-        if (cliente_thingsboard != NULL) {
+        // LCD reenvía al topic de telemetría para que ThingsBoard Integration lo lea
+        if (cliente_hivemq != NULL) {
             char payload_tb[256];
             snprintf(payload_tb, sizeof(payload_tb),
-                     "{\"ts\":%lld,\"values\":{\"%s\":%lu}}",
-                     (long long)timestamp * 1000LL,
+                     "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\","
+                     "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
+                     producto_recibido.id,
+                     producto_recibido.id,
                      producto_recibido.name,
-                     (unsigned long)producto_recibido.stock);
-            esp_mqtt_client_publish(cliente_thingsboard, TOPIC_TELEMETRY, payload_tb, 0, 1, 0);
-
-            char attr_payload[256];
-            snprintf(attr_payload, sizeof(attr_payload),
-                     "{\"ultimo_id\":\"%s\",\"ultimo_nombre\":\"%s\",\"ultimo_estado\":\"%s\"}",
-                     producto_recibido.id, producto_recibido.name, estado);
-            esp_mqtt_client_publish(cliente_thingsboard, TOPIC_ATTRIBUTES, attr_payload, 0, 1, 0);
+                     (unsigned long)producto_recibido.stock,
+                     (long long)timestamp,
+                     estado);
+            esp_mqtt_client_publish(cliente_hivemq, TOPIC_TELEMETRY_HV, payload_tb, 0, 1, 0);
+            ESP_LOGI(TAG, "LCD reenvio a ThingsBoard via HiveMQ: %s", payload_tb);
         } else {
-            ESP_LOGW(TAG, "ThingsBoard no conectado, no se reenvio");
+            ESP_LOGW(TAG, "HiveMQ no conectado, no se reenvio");
         }
 #endif
 
@@ -265,46 +259,12 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
     }
 }
 
-// ─── Event handler ThingsBoard ───────────────────────────────────────────────
-
-static void mqtt_thingsboard_event_handler(void *handler_args, esp_event_base_t base,
-                                           int32_t event_id, void *event_data)
-{
-    esp_mqtt_event_handle_t event = event_data;
-
-    switch ((esp_mqtt_event_id_t)event_id) {
-
-    case MQTT_EVENT_CONNECTED:
-        ESP_LOGI(TAG, "ThingsBoard: conectado!");
-        cliente_thingsboard = event->client;
-        esp_mqtt_client_publish(event->client, "ESP_CONNECTED", DEVICE_ID, 0, 1, 0);
-        break;
-
-    case MQTT_EVENT_DISCONNECTED:
-        ESP_LOGI(TAG, "ThingsBoard: desconectado");
-        cliente_thingsboard = NULL;
-        break;
-
-    case MQTT_EVENT_ERROR:
-        ESP_LOGE(TAG, "ThingsBoard: error MQTT");
-        if (event->error_handle != NULL) {
-            ESP_LOGE(TAG, "Tipo: %d", event->error_handle->error_type);
-            ESP_LOGE(TAG, "esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
-            ESP_LOGE(TAG, "socket errno: %d", event->error_handle->esp_transport_sock_errno);
-        }
-        break;
-
-    default:
-        break;
-    }
-}
-
 // ─── Inicio MQTT ─────────────────────────────────────────────────────────────
 
 void iniciar_mqtt(void)
 {
     esp_mqtt_client_config_t hivemq_cfg = {
-    .broker.address.uri = HIVEMQ_URI,
+        .broker.address.uri = HIVEMQ_URI,
     };
 
     esp_mqtt_client_handle_t hive_client = esp_mqtt_client_init(&hivemq_cfg);
@@ -314,21 +274,6 @@ void iniciar_mqtt(void)
     }
     esp_mqtt_client_register_event(hive_client, ESP_EVENT_ANY_ID, mqtt_hivemq_event_handler, NULL);
     esp_mqtt_client_start(hive_client);
-
-#if DEVICE_IS_LCD
-    esp_mqtt_client_config_t tb_cfg = {
-        .broker.address.uri   = TB_URI,
-        .credentials.username = TB_TOKEN,
-    };
-
-    esp_mqtt_client_handle_t tb_client = esp_mqtt_client_init(&tb_cfg);
-    if (tb_client == NULL) {
-        ESP_LOGE(TAG, "No se pudo crear cliente ThingsBoard");
-        return;
-    }
-    esp_mqtt_client_register_event(tb_client, ESP_EVENT_ANY_ID, mqtt_thingsboard_event_handler, NULL);
-    esp_mqtt_client_start(tb_client);
-#endif
 }
 
 // ─── Publicación ─────────────────────────────────────────────────────────────
@@ -348,31 +293,6 @@ static bool publicar_evento(Product producto, const char *estado)
         ESP_LOGW(TAG, "No hay logger local configurado");
     }
 
-#if DEVICE_IS_LCD
-    if (cliente_thingsboard == NULL) {
-        ESP_LOGW(TAG, "ThingsBoard no conectado, quedo guardado en logger");
-        return false;
-    }
-
-    char payload[256];
-    snprintf(payload, sizeof(payload),
-             "{\"ts\":%lld,\"values\":{\"%s\":%lu}}",
-             (long long)timestamp * 1000LL,
-             producto.name,
-             (unsigned long)producto.stock);
-
-    esp_mqtt_client_publish(cliente_thingsboard, TOPIC_TELEMETRY, payload, 0, 1, 0);
-    ESP_LOGI(TAG, "LCD telemetria publicada: %s", payload);
-
-    char attr_payload[256];
-    snprintf(attr_payload, sizeof(attr_payload),
-             "{\"ultimo_id\":\"%s\",\"ultimo_nombre\":\"%s\",\"ultimo_estado\":\"%s\"}",
-             producto.id, producto.name, estado);
-
-    esp_mqtt_client_publish(cliente_thingsboard, TOPIC_ATTRIBUTES, attr_payload, 0, 1, 0);
-    ESP_LOGI(TAG, "LCD attribute publicado: %s", attr_payload);
-
-#else
     if (cliente_hivemq == NULL) {
         ESP_LOGW(TAG, "HiveMQ no conectado, quedo guardado en logger");
         return false;
@@ -395,7 +315,6 @@ static bool publicar_evento(Product producto, const char *estado)
         return false;
     }
     ESP_LOGI(TAG, "CAM scan publicado en HiveMQ: %s", payload);
-#endif
 
     return true;
 }
