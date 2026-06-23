@@ -1,8 +1,6 @@
 #include "wifi_manager.h"
-
 #include <stdio.h>
 #include <string.h>
-
 #include "esp_check.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -31,7 +29,7 @@ static char s_ip_address[16]    = {0};
 static portMUX_TYPE s_status_mux = portMUX_INITIALIZER_UNLOCKED;
 
 
-// Carga las credenciales Wi-Fi guardadas en NVS. 
+// Carga las credenciales Wi-Fi guardadas en NVS.
 // Devuelve ESP_OK si tuvo exito o un error de lo contrario.
 static esp_err_t load_credentials(char *ssid, size_t ssid_size,
                                    char *password, size_t password_size)
@@ -76,7 +74,7 @@ static void set_status_disconnected(void)
     portEXIT_CRITICAL(&s_status_mux);
 }
 
-// Actualiza el estado interno para reflejar que la STA está conectada 
+// Actualiza el estado interno para reflejar que la STA está conectada
 // y almacena la IP obtenida.
 static void set_status_connected(const char *ip_address)
 {
@@ -253,21 +251,21 @@ esp_err_t wifi_manager_init(void)
     return ESP_OK;
 }
 
-// Guarda las credenciales Wi-Fi y se conecta a la red configurada. 
+// Guarda las credenciales Wi-Fi y se conecta a la red configurada.
 // Si ya había una conexión activa, se desconecta primero.
 esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
 {
-    if (!s_initialized)          
+    if (!s_initialized)
         return ESP_ERR_INVALID_STATE;
-    if (!ssid || !password)      
+    if (!ssid || !password)
         return ESP_ERR_INVALID_ARG;
 
     size_t ssid_len = strlen(ssid);
     size_t pass_len = strlen(password);
 
-    if (ssid_len == 0 || ssid_len > 32)                        
+    if (ssid_len == 0 || ssid_len > 32)
         return ESP_ERR_INVALID_ARG;
-    if (pass_len > 63 || (pass_len > 0 && pass_len < 8))       
+    if (pass_len > 63 || (pass_len > 0 && pass_len < 8))
         return ESP_ERR_INVALID_ARG;
 
     ESP_RETURN_ON_ERROR(save_credentials(ssid, password), TAG,
@@ -303,7 +301,7 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
 // Elimina las credenciales Wi-Fi guardadas y desconecta la interfaz STA si está conectada.
 esp_err_t wifi_manager_clear_credentials(void)
 {
-    if (!s_initialized) 
+    if (!s_initialized)
         return ESP_ERR_INVALID_STATE;
 
     esp_err_t err = nvs_storage_clear();
@@ -329,7 +327,7 @@ esp_err_t wifi_manager_clear_credentials(void)
 // Llena la estructura de estado con la información actual del Wi-Fi.
 void wifi_manager_get_status(wifi_manager_status_t *status)
 {
-    if (!status) 
+    if (!status)
         return;
 
     portENTER_CRITICAL(&s_status_mux);
