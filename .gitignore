@@ -80,3 +80,4 @@ Desktop.ini
 .zed/
 .vscode/
 .DS_Store/
+.devcontainer/

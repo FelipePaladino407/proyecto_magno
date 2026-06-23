@@ -234,13 +234,12 @@ void iniciar_mqtt(void)
     esp_mqtt_client_start(client);
 }
 
-static void publicar_evento(Product producto, const char *estado)
-{
+static bool publicar_evento(Product producto, const char *estado, const char *topic) {
     time_t timestamp = 0;
 
     if (!get_timestamp(&timestamp)) {
         ESP_LOGW(TAG, "No se pudo obtener timestamp valido");
-        return;
+        return false;
     }
 
     if (logger_local_mqtt != NULL) {
@@ -251,39 +250,38 @@ static void publicar_evento(Product producto, const char *estado)
 
     if (cliente_mqtt_global == NULL) {
         ESP_LOGW(TAG, "MQTT no conectado, no se publica pero ya quedo guardado en el logger");
-        return;
+        return false; // para asegurar que estamos conectados
     }
 
     char payload[256];
 
-        snprintf(payload, sizeof(payload),
-            "{\"ts\":%lld,\"values\":{\"%s\":%lu}}",
-            (long long)timestamp * 1000LL,   // ThingsBoard usa millisegundos
-            producto.name,                    // key dinámica = nombre del producto
-            (unsigned long)producto.stock);   // value = stock
+    // Empaquetamos el struct en un string JSON con ID, Nombre, Stock, Timestamp y Estado
+    snprintf(
+        payload, sizeof(payload),
+        "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\",\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
+        DEVICE_ID, producto.id, producto.name, (unsigned long)producto.stock, (long long)timestamp, estado);
 
-    esp_mqtt_client_publish(cliente_mqtt_global, topic_select, payload, 0, 1, 0);
+    // Publicamos el texto armado
+    int msg_id = esp_mqtt_client_publish(cliente_mqtt_global, topic, payload, 0, 1, 0);
+    
+    if (msg_id < 0) {
+      ESP_LOGW(TAG, "No se pudo publicar mensaje MQTT");
+      return false;
+    }
+
     ESP_LOGI(TAG, "Producto publicado: %s", payload);
-
-    // Attribute separado: último producto escaneado (legible en dashboard)
-    char attr_payload[256];
-    snprintf(attr_payload, sizeof(attr_payload),
-             "{\"ultimo_id\":\"%s\",\"ultimo_nombre\":\"%s\",\"ultimo_estado\":\"%s\"}",
-             producto.id,
-             producto.name,
-             estado);
-
-    esp_mqtt_client_publish(cliente_mqtt_global, "v1/devices/me/attributes", attr_payload, 0, 1, 0);
-    ESP_LOGI(TAG, "Attribute publicado: %s", attr_payload);
+    return true;
 }
 
-void procesar_y_publicar_qr(Product producto_escaneado)
-{
-    publicar_evento(producto_escaneado, "OK");
+bool procesar_y_publicar_qr(Product producto_escaneado) {
+    return publicar_evento(producto_escaneado, "OK", "sistema/escaner/evento");
 }
 
-void procesar_y_publicar_error(const char *mensaje_error)
-{
+bool procesar_y_publicar_manual(Product producto_manual) {
+    return publicar_evento(producto_manual, "MANUAL", "sistema/escaner/evento");
+}
+
+bool procesar_y_publicar_error(const char *mensaje_error) {
     Product producto_error;
     memset(&producto_error, 0, sizeof(producto_error));
 
@@ -295,5 +293,5 @@ void procesar_y_publicar_error(const char *mensaje_error)
 
     producto_error.stock = 0;
 
-    publicar_evento(producto_error, "ERROR");
+    return publicar_evento(producto_error, "ERROR", "sistema/escaner/error");
 }

@@ -18,22 +18,22 @@ static void logger_armar_claves(Logger *logger, const char *nombre)//para el nvs
 
     snprintf(logger->nvs_key_buffer,
              sizeof(logger->nvs_key_buffer),
-             "%s_buf",
+             "%.9s_buf",
              logger->nombre);
 
     snprintf(logger->nvs_key_head,
              sizeof(logger->nvs_key_head),
-             "%s_head",
+             "%.9s_head",
              logger->nombre);
 
     snprintf(logger->nvs_key_tail,
              sizeof(logger->nvs_key_tail),
-             "%s_tail",
+             "%.9s_tail",
              logger->nombre);
 
     snprintf(logger->nvs_key_count,
              sizeof(logger->nvs_key_count),
-             "%s_count",
+             "%.9s_count",
              logger->nombre);
 }
 
