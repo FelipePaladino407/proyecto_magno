@@ -31,29 +31,6 @@ static Logger logger_recibido;
 
 #define ENABLE_FAKE_QR_DEMO 1
 
-static void network_services_task(void *pvParameters)
-{
-    (void)pvParameters;
-
-    wifi_manager_status_t status;
-
-    while (true) {
-        wifi_manager_get_status(&status);
-
-        if (status.connected) {
-            ESP_LOGI(TAG, "WiFi listo con IP %s. Inicializando NTP y MQTT...",
-                     status.ip_address);
-
-            init_time();
-            iniciar_mqtt();
-
-            vTaskDelete(NULL);
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
-
 static void lcd_display_product_cb(const Product *product)
 {
     if (product == NULL) {
@@ -101,6 +78,26 @@ static bool mqtt_flush_pending_cb(void)
     return mqtt_handler_flush_pending();
 }
 
+static void network_services_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    wifi_manager_status_t status;
+
+    while (true) {
+        wifi_manager_get_status(&status);
+
+        if (status.connected) {
+            ESP_LOGI(TAG, "WiFi listo con IP %s. Inicializando NTP y MQTT...", status.ip_address);
+            init_time();
+            iniciar_mqtt();
+            vTaskDelete(NULL);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 static void post_touch_event(EventType event)
 {
     if (!fsm_post_event(event)) {
@@ -115,11 +112,11 @@ static void fake_qr_demo_task(void *pvParameters)
 
     vTaskDelay(pdMS_TO_TICKS(25000));
 
-    ESP_LOGI(TAG, "[FAKE_CAMERA] QR valido: PROD001/Cigarros");
-    fsm_on_qr_detected("PROD001", "Cigarros");
+    ESP_LOGI(TAG, "[FAKE_CAMERA] QR valido: LAC-LEC-001/Leche Entera 1L");
+    fsm_on_qr_detected("LAC-LEC-001", "Leche Entera 1L");
 
     vTaskDelay(pdMS_TO_TICKS(20000));
-    ESP_LOGI(TAG, "[FAKE_TOUCH] Confirmar que se quiere agregar PROD001");
+    ESP_LOGI(TAG, "[FAKE_TOUCH] Confirmar que se quiere agregar LAC-LEC-001");
     post_touch_event(EV_BTN_CONFIRM);
 
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -161,23 +158,14 @@ void fsm_task(void *pvParameters)
     }
 }
 
-static void load_demo_catalog(void)
+static void load_catalog(void)
 {
-    Product product;
+    uint32_t loaded = product_db_load_default_catalog();
 
-    if (product_db_upsert_product("PROD001", "Cigarros", 0, &product)) {
-        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu",
-                 product.id,
-                 product.name,
-                 (unsigned long)product.stock);
-    }
-
-    if (product_db_upsert_product("PROD002", "Brownies", 0, &product)) {
-        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu",
-                 product.id,
-                 product.name,
-                 (unsigned long)product.stock);
-    }
+    ESP_LOGI(TAG,
+             "Catalogo compartido cargado en product_db -> %lu/%d productos con stock inicial 0",
+             (unsigned long)loaded,
+             CATALOGO_SIZE);
 }
 
 void app_main(void)
@@ -198,7 +186,7 @@ void app_main(void)
     };
 
     product_db_init();
-    load_demo_catalog();
+    load_catalog();
 
     /* Los tests usan solo la tabla de transiciones. No registramos callbacks reales hasta terminar. */
 //    fsm_init();
@@ -225,12 +213,7 @@ void app_main(void)
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
-    xTaskCreate(&network_services_task,
-            "NETWORK_SERVICES",
-            4096,
-            NULL,
-            1,
-            NULL);
+    xTaskCreate(&network_services_task, "NETWORK_SERVICES", 4096, NULL, 1, NULL);
 
 #if ENABLE_FAKE_QR_DEMO
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
@@ -240,4 +223,5 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
+
 

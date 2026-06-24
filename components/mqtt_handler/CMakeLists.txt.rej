@@ -1,0 +1,9 @@
+--- components/mqtt_handler/CMakeLists.txt
++++ components/mqtt_handler/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ idf_component_register(
+     SRCS "mqtt_handler.c"
+     INCLUDE_DIRS "include"
+-    REQUIRES mqtt logger ntp_handler shared fsm 
++    REQUIRES mqtt logger ntp_handler pending_queue shared fsm product_db
+ )
