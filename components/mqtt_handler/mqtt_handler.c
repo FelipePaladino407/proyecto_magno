@@ -11,8 +11,7 @@
 #include "logger.h"
 #include "ntp_handler.h"
 #include "pending_queue.h"
-#include "product_db.h"
-#include "shared_types.h"
+#include "telemetry_formatter.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -33,7 +32,7 @@ static const char *DEVICE_ID = "LCD_01";
 static const char *DEVICE_ID = "CAM_01";
 #endif
 
-/* Broker unico para comunicacion CAM->LCD y para el topic que lee la integration de ThingsBoard. */
+/* Broker unico para comunicacion CAM->LCD y telemetria leida por ThingsBoard Integration. */
 static const char *HIVEMQ_URI         = "mqtt://broker.hivemq.com:1883";
 static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";
 static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry";
@@ -86,96 +85,40 @@ static time_t timestamp_or_fallback(void)
     return timestamp;
 }
 
-static const char *topic_for_outgoing_state(const char *estado)
+static const char *topic_for_outgoing_state(void)
 {
 #if DEVICE_IS_LCD
-    (void)estado;
     return TOPIC_TELEMETRY_HV;
 #else
-    (void)estado;
     return TOPIC_COMUNICACION;
 #endif
-}
-
-static bool build_scan_payload(char *payload,
-                               size_t payload_size,
-                               Product producto,
-                               const char *estado,
-                               time_t timestamp)
-{
-    if (payload == NULL || payload_size == 0 || estado == NULL) {
-        return false;
-    }
-
-    int written = snprintf(payload,
-                           payload_size,
-                           "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\"," 
-                           "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
-                           DEVICE_ID,
-                           producto.id,
-                           producto.name,
-                           (unsigned long)producto.stock,
-                           (long long)timestamp,
-                           estado);
-
-    return written > 0 && (size_t)written < payload_size;
-}
-
-static bool build_telemetry_payload(char *payload,
-                                    size_t payload_size,
-                                    Product producto,
-                                    const char *estado,
-                                    time_t timestamp)
-{
-    if (payload == NULL || payload_size == 0 || estado == NULL) {
-        return false;
-    }
-
-    int written;
-
-    if (strcmp(estado, "ERROR") == 0) {
-        written = snprintf(payload,
-                           payload_size,
-                           "{\"ts\":%lld,\"values\":{\"last_error\":\"%s\",\"last_estado\":\"ERROR\"}}",
-                           (long long)timestamp * 1000LL,
-                           producto.name);
-    } else {
-        written = snprintf(payload,
-                           payload_size,
-                           "{\"ts\":%lld,\"values\":{\"%s\":%lu,\"last_product_id\":\"%s\"," 
-                           "\"last_product_name\":\"%s\",\"last_estado\":\"%s\"}}",
-                           (long long)timestamp * 1000LL,
-                           producto.name,
-                           (unsigned long)producto.stock,
-                           producto.id,
-                           producto.name,
-                           estado);
-    }
-
-    return written > 0 && (size_t)written < payload_size;
 }
 
 static bool build_payload_for_topic(char *payload,
                                     size_t payload_size,
                                     const char *topic,
-                                    Product producto,
-                                    const char *estado,
+                                    Product product,
+                                    const char *state,
                                     time_t timestamp)
 {
-    if (strcmp(topic, TOPIC_TELEMETRY_HV) == 0) {
-        return build_telemetry_payload(payload, payload_size, producto, estado, timestamp);
+    if (topic == NULL) {
+        return false;
     }
 
-    return build_scan_payload(payload, payload_size, producto, estado, timestamp);
+    if (strcmp(topic, TOPIC_TELEMETRY_HV) == 0) {
+        return telemetry_build_telemetry_payload(product, state, timestamp, payload, payload_size);
+    }
+
+    return telemetry_build_scan_payload(DEVICE_ID, product, state, timestamp, payload, payload_size);
 }
 
-static bool publish_with_timestamp(Product producto,
-                                   const char *estado,
+static bool publish_with_timestamp(Product product,
+                                   const char *state,
                                    const char *topic,
                                    time_t timestamp,
-                                   bool guardar_en_logger_local)
+                                   bool save_in_local_logger)
 {
-    if (estado == NULL || topic == NULL || topic[0] == '\0' || timestamp == 0) {
+    if (state == NULL || topic == NULL || topic[0] == '\0' || timestamp == 0) {
         ESP_LOGW(TAG, "No se puede publicar: evento invalido");
         return false;
     }
@@ -185,8 +128,8 @@ static bool publish_with_timestamp(Product producto,
         return false;
     }
 
-    char payload[512];
-    if (!build_payload_for_topic(payload, sizeof(payload), topic, producto, estado, timestamp)) {
+    char payload[768];
+    if (!build_payload_for_topic(payload, sizeof(payload), topic, product, state, timestamp)) {
         ESP_LOGW(TAG, "No se pudo construir payload MQTT");
         return false;
     }
@@ -197,9 +140,9 @@ static bool publish_with_timestamp(Product producto,
         return false;
     }
 
-    if (guardar_en_logger_local) {
+    if (save_in_local_logger) {
         if (logger_local_mqtt != NULL) {
-            logger_push(logger_local_mqtt, producto, timestamp, estado);
+            logger_push(logger_local_mqtt, product, timestamp, state);
         } else {
             ESP_LOGW(TAG, "No hay logger local configurado");
         }
@@ -209,29 +152,34 @@ static bool publish_with_timestamp(Product producto,
     return true;
 }
 
-static bool publish_now(Product producto, const char *estado, const char *topic)
+static bool publish_now(Product product, const char *state, const char *topic)
 {
     time_t timestamp = timestamp_or_fallback();
-    return publish_with_timestamp(producto, estado, topic, timestamp, true);
+    return publish_with_timestamp(product, state, topic, timestamp, true);
 }
 
-static bool store_pending(Product producto, const char *estado, const char *topic)
+static bool store_pending(Product product, const char *state, const char *topic)
 {
     time_t timestamp = timestamp_or_fallback();
-    return pending_queue_push(producto, timestamp, estado, topic);
+    return pending_queue_push(product, timestamp, state, topic);
 }
 
-static bool parse_scan_payload(const char *mensaje, Product *out_product, time_t *out_timestamp, char *out_estado, size_t estado_size)
+static bool parse_scan_payload(const char *message,
+                               Product *out_product,
+                               time_t *out_timestamp,
+                               char *out_state,
+                               size_t state_size)
 {
-    if (mensaje == NULL || out_product == NULL || out_timestamp == NULL || out_estado == NULL || estado_size == 0) {
+    if (message == NULL || out_product == NULL || out_timestamp == NULL ||
+        out_state == NULL || state_size == 0) {
         return false;
     }
 
     memset(out_product, 0, sizeof(*out_product));
     *out_timestamp = 0;
-    out_estado[0] = '\0';
+    out_state[0] = '\0';
 
-    cJSON *json = cJSON_Parse(mensaje);
+    cJSON *json = cJSON_Parse(message);
     if (json == NULL) {
         ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
         return false;
@@ -239,10 +187,10 @@ static bool parse_scan_payload(const char *mensaje, Product *out_product, time_t
 
     cJSON *device_id      = cJSON_GetObjectItem(json, "device_id");
     cJSON *id             = cJSON_GetObjectItem(json, "id");
-    cJSON *producto       = cJSON_GetObjectItem(json, "producto");
+    cJSON *product_name   = cJSON_GetObjectItem(json, "producto");
     cJSON *stock          = cJSON_GetObjectItem(json, "stock");
     cJSON *timestamp_json = cJSON_GetObjectItem(json, "timestamp");
-    cJSON *estado_json    = cJSON_GetObjectItem(json, "estado");
+    cJSON *state_json     = cJSON_GetObjectItem(json, "estado");
 
     if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {
         ESP_LOGI(TAG, "Mensaje propio recibido, ignorado");
@@ -250,58 +198,58 @@ static bool parse_scan_payload(const char *mensaje, Product *out_product, time_t
         return true;
     }
 
-    if (!(cJSON_IsString(id) && cJSON_IsString(producto) && cJSON_IsNumber(stock) &&
-          cJSON_IsNumber(timestamp_json) && cJSON_IsString(estado_json))) {
+    if (!(cJSON_IsString(id) && cJSON_IsString(product_name) && cJSON_IsNumber(stock) &&
+          cJSON_IsNumber(timestamp_json) && cJSON_IsString(state_json))) {
         ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
         cJSON_Delete(json);
         return false;
     }
 
     safe_copy(out_product->id, id->valuestring, sizeof(out_product->id));
-    safe_copy(out_product->name, producto->valuestring, sizeof(out_product->name));
+    safe_copy(out_product->name, product_name->valuestring, sizeof(out_product->name));
     out_product->stock = (uint32_t)stock->valuedouble;
     *out_timestamp = (time_t)timestamp_json->valuedouble;
-    safe_copy(out_estado, estado_json->valuestring, estado_size);
+    safe_copy(out_state, state_json->valuestring, state_size);
 
     cJSON_Delete(json);
     return true;
 }
 
-static bool procesar_json_recibido(const char *mensaje)
+static bool procesar_json_recibido(const char *message)
 {
-    Product producto_recibido;
+    Product received_product;
     time_t timestamp = 0;
-    char estado[16];
+    char state[16];
 
-    if (!parse_scan_payload(mensaje, &producto_recibido, &timestamp, estado, sizeof(estado))) {
+    if (!parse_scan_payload(message, &received_product, &timestamp, state, sizeof(state))) {
         return false;
     }
 
-    if (producto_recibido.id[0] == '\0') {
+    if (received_product.id[0] == '\0') {
         return true;
     }
 
     if (logger_recibido_mqtt != NULL) {
-        logger_push(logger_recibido_mqtt, producto_recibido, timestamp, estado);
+        logger_push(logger_recibido_mqtt, received_product, timestamp, state);
     } else {
         ESP_LOGW(TAG, "No hay logger recibido configurado");
     }
 
     ESP_LOGI(TAG,
              "Struct reconstruido -> ID:%s | Nombre:%s | Stock:%lu | Timestamp:%lld | Estado:%s",
-             producto_recibido.id,
-             producto_recibido.name,
-             (unsigned long)producto_recibido.stock,
+             received_product.id,
+             received_product.name,
+             (unsigned long)received_product.stock,
              (long long)timestamp,
-             estado);
+             state);
 
 #if DEVICE_IS_LCD
-    /* En LCD el mensaje de CAM entra a la FSM. No se modifica stock ni se reenvia a TB aqui.
-       La FSM pregunta por LCD/touch, actualiza product_db y recien despues publica telemetria. */
-    if (strcmp(estado, "ERROR") == 0) {
-        fsm_on_qr_invalid(producto_recibido.name[0] != '\0' ? producto_recibido.name : "Error recibido por MQTT");
+    /* En LCD, el scan de CAM entra a la FSM. La FSM valida catalogo, pregunta cantidad,
+       actualiza product_db y recien despues publica telemetria a ThingsBoard. */
+    if (strcmp(state, "ERROR") == 0) {
+        fsm_on_qr_invalid(received_product.name[0] != '\0' ? received_product.name : "Error recibido por MQTT");
     } else {
-        fsm_on_qr_detected(producto_recibido.id, producto_recibido.name);
+        fsm_on_qr_detected(received_product.id, received_product.name);
     }
 #endif
 
@@ -314,43 +262,31 @@ static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
         return;
     }
 
-    int i = 0;
+    size_t i = 0;
+    const size_t catalog_size = telemetry_catalog_size();
 
-    while (i < CATALOGO_SIZE) {
-        char values[640] = "";
-        int len = 0;
+    while (i < catalog_size) {
+        char payload[768];
+        size_t next_index = i;
+        time_t timestamp = timestamp_or_fallback();
 
-        for (int j = 0; j < 10 && i < CATALOGO_SIZE; j++, i++) {
-            Product producto_db;
-            uint32_t stock_actual = 0;
-
-            if (product_db_find_by_id(catalogo_completo[i].id, &producto_db)) {
-                stock_actual = producto_db.stock;
-            }
-
-            int written = snprintf(values + len,
-                                   sizeof(values) - (size_t)len,
-                                   "%s\"%s\":%lu",
-                                   (j == 0) ? "" : ",",
-                                   catalogo_completo[i].nombre,
-                                   (unsigned long)stock_actual);
-            if (written < 0 || written >= (int)(sizeof(values) - (size_t)len)) {
-                ESP_LOGW(TAG, "Payload de catalogo inicial truncado");
-                break;
-            }
-            len += written;
+        if (!telemetry_build_catalog_batch_payload(i,
+                                                   10,
+                                                   timestamp,
+                                                   payload,
+                                                   sizeof(payload),
+                                                   &next_index)) {
+            ESP_LOGW(TAG, "No se pudo construir payload de catalogo inicial");
+            break;
         }
 
-        time_t ts = timestamp_or_fallback();
-        char payload[768];
-        snprintf(payload, sizeof(payload),
-                 "{\"ts\":%lld,\"values\":{%s}}",
-                 (long long)ts * 1000LL,
-                 values);
-
         esp_mqtt_client_publish(client, TOPIC_TELEMETRY_HV, payload, 0, 1, 0);
-        ESP_LOGI(TAG, "Catalogo inicial publicado [%d/%d]: %s", i, CATALOGO_SIZE, payload);
+        ESP_LOGI(TAG, "Catalogo inicial publicado [%u/%u]: %s",
+                 (unsigned)next_index,
+                 (unsigned)catalog_size,
+                 payload);
 
+        i = next_index;
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
@@ -399,23 +335,23 @@ static void mqtt_hivemq_event_handler(void *handler_args,
 
     case MQTT_EVENT_DATA: {
         char topic[128];
-        char mensaje[512];
+        char message[512];
 
         int topic_len = event->topic_len < (int)sizeof(topic) - 1 ? event->topic_len : (int)sizeof(topic) - 1;
-        int data_len  = event->data_len  < (int)sizeof(mensaje) - 1 ? event->data_len : (int)sizeof(mensaje) - 1;
+        int data_len  = event->data_len  < (int)sizeof(message) - 1 ? event->data_len : (int)sizeof(message) - 1;
 
         memcpy(topic, event->topic, topic_len);
         topic[topic_len] = '\0';
 
-        memcpy(mensaje, event->data, data_len);
-        mensaje[data_len] = '\0';
+        memcpy(message, event->data, data_len);
+        message[data_len] = '\0';
 
         ESP_LOGI(TAG, "HiveMQ mensaje en topic: %s", topic);
-        ESP_LOGI(TAG, "HiveMQ datos: %s", mensaje);
+        ESP_LOGI(TAG, "HiveMQ datos: %s", message);
 
 #if DEVICE_IS_LCD
         if (strcmp(topic, TOPIC_COMUNICACION) == 0) {
-            procesar_json_recibido(mensaje);
+            procesar_json_recibido(message);
         } else {
             ESP_LOGI(TAG, "Topic desconocido, ignorado");
         }
@@ -461,36 +397,36 @@ void iniciar_mqtt(void)
 
 bool procesar_y_publicar_qr(Product producto_escaneado)
 {
-    return publish_now(producto_escaneado, "OK", topic_for_outgoing_state("OK"));
+    return publish_now(producto_escaneado, "OK", topic_for_outgoing_state());
 }
 
 bool procesar_y_publicar_manual(Product producto_manual)
 {
-    return publish_now(producto_manual, "MANUAL", topic_for_outgoing_state("MANUAL"));
+    return publish_now(producto_manual, "MANUAL", topic_for_outgoing_state());
 }
 
 bool procesar_y_publicar_error(const char *mensaje_error)
 {
-    Product producto_error;
-    memset(&producto_error, 0, sizeof(producto_error));
+    Product error_product;
+    memset(&error_product, 0, sizeof(error_product));
 
-    safe_copy(producto_error.id, "ERROR", sizeof(producto_error.id));
-    safe_copy(producto_error.name, mensaje_error != NULL ? mensaje_error : "Error desconocido", sizeof(producto_error.name));
-    producto_error.stock = 0;
+    safe_copy(error_product.id, "ERROR", sizeof(error_product.id));
+    safe_copy(error_product.name, mensaje_error != NULL ? mensaje_error : "Error desconocido", sizeof(error_product.name));
+    error_product.stock = 0;
 
-    const char *topic = topic_for_outgoing_state("ERROR");
+    const char *topic = topic_for_outgoing_state();
 
-    if (publish_now(producto_error, "ERROR", topic)) {
+    if (publish_now(error_product, "ERROR", topic)) {
         return true;
     }
 
     /* Los errores no pasan por save_to_local_buffer de la FSM, por eso se guardan aca. */
-    return store_pending(producto_error, "ERROR", topic);
+    return store_pending(error_product, "ERROR", topic);
 }
 
 bool mqtt_handler_store_pending_qr(Product producto_escaneado)
 {
-    return store_pending(producto_escaneado, "OK", topic_for_outgoing_state("OK"));
+    return store_pending(producto_escaneado, "OK", topic_for_outgoing_state());
 }
 
 bool mqtt_handler_flush_pending(void)
