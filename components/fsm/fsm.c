@@ -106,6 +106,12 @@ static void handle_wifi_connected(void)
 static void handle_mqtt_connected(void)
 {
     ESP_LOGI(TAG, "MQTT conectado");
+
+    if (s_callbacks.flush_pending != NULL) {
+        if (!s_callbacks.flush_pending()) {
+            ESP_LOGW(TAG, "No se pudieron reenviar todos los eventos pendientes");
+        }
+    }
 }
 
 static void handle_mqtt_disconnected(void)
@@ -292,7 +298,20 @@ static void handle_mqtt_publish_success(void)
 
 static void save_to_local_buffer(void)
 {
-    ESP_LOGW(TAG, "Fallo de publicacion. El producto queda pendiente para NVS/local buffer si se implementa");
+    bool stored = false;
+
+    if (active_product_valid && s_callbacks.store_pending_qr != NULL) {
+        stored = s_callbacks.store_pending_qr(&active_product);
+    }
+
+    if (stored) {
+        ESP_LOGW(TAG, "Fallo de publicacion. Producto guardado como pendiente en NVS");
+        display_message("Sin conexion", "Producto guardado pendiente");
+    } else {
+        ESP_LOGE(TAG, "Fallo de publicacion y no se pudo guardar pendiente en NVS");
+        display_message("Error", "No se pudo guardar pendiente");
+    }
+
     return_to_idle();
 }
 
@@ -440,4 +459,5 @@ void fsm_execute_transition(EventType event)
              current_state,
              event);
 }
+
 
