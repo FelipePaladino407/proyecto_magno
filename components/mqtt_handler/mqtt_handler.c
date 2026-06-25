@@ -26,6 +26,15 @@ static Logger *logger_recibido_mqtt = NULL;
 ///////////////////////////////
 //Parametros de conexión MQTT//
 ///////////////////////////////
+
+// En la CAM poner:
+// static const char *DEVICE_ID = "CAM_01";
+// #define DEVICE_IS_LCD 0
+
+// En la LCD poner:
+// static const char *DEVICE_ID = "LCD_01";
+// #define DEVICE_IS_LCD 1
+
 static const char *DEVICE_ID = "CAM_01";
 
 // HiveMQ público — broker único para todo
@@ -135,18 +144,29 @@ static bool procesar_json_recibido(const char *mensaje)
                  (unsigned long)producto_recibido.stock, (long long)timestamp, estado);
 
 #if DEVICE_IS_LCD
-        // LCD reenvía al topic de telemetría para que ThingsBoard Integration lo lea
+        // LCD reenvía al topic de telemetría para que ThingsBoard Integration lo lea.
+        // Se conserva el device_id original que vino en el JSON recibido.
+        // Así ThingsBoard puede identificar desde qué cámara llegó el evento,
+        // en vez de recibir siempre el DEVICE_ID de la LCD.
         if (cliente_hivemq != NULL) {
             char payload_tb[256];
+
+            const char *device_id_origen = "UNKNOWN";
+
+            if (cJSON_IsString(device_id)) {
+                device_id_origen = device_id->valuestring;
+            }
+
             snprintf(payload_tb, sizeof(payload_tb),
                      "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\","
                      "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
-                     producto_recibido.id,
+                     device_id_origen,
                      producto_recibido.id,
                      producto_recibido.name,
                      (unsigned long)producto_recibido.stock,
                      (long long)timestamp,
                      estado);
+
             esp_mqtt_client_publish(cliente_hivemq, TOPIC_TELEMETRY_HV, payload_tb, 0, 1, 0);
             ESP_LOGI(TAG, "LCD reenvio a ThingsBoard via HiveMQ: %s", payload_tb);
         } else {
