@@ -106,6 +106,6 @@ void app_main(void) {
         snprintf(p.id,   sizeof(p.id),   "%011d", idx);
         snprintf(p.name, sizeof(p.name), "%s", catalogo[idx]);
 
-        procesar_y_publicar_qr(p);
+        procesar_y_publicar(p);
     }
 }

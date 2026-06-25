@@ -319,6 +319,11 @@ static bool publicar_evento(Product producto, const char *estado)
     return true;
 }
 
+bool procesar_y_publicar(Product producto_escaneado)
+{
+    return publicar_evento(producto_escaneado, "OK");
+}
+
 bool procesar_y_publicar_qr(Product producto_escaneado)
 {
     return publicar_evento(producto_escaneado, "OK");
