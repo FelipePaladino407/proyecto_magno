@@ -9,7 +9,8 @@
 #define EV_BTN_CANCEL  EV_BTN_EXIT
 
 typedef enum {
-    STATE_IDLE = 0,
+    STATE_SETUP,
+    STATE_IDLE,
 
     // placa A
     STATE_SCAN_PROCESSING,
@@ -26,10 +27,12 @@ typedef enum {
 
     // comun
     STATE_MQTT_PUBLISHING,
-    STATE_ERROR_DISPLAY,
+    STATE_ERROR,
 
     STATE_COUNT
 } State;
+
+// todos los estados tienen un timer que puede cortar todo con un EV_TIMEOUT
 
 void fsm_init(void);
 void fsm_execute_transition(EventType event);

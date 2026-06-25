@@ -5,26 +5,27 @@
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 
-/*
- * La FSM se piensa como la lógica de la placa 2:
- * recibe QR ya decodificados, pregunta por LCD/touch, actualiza stock y publica.
- */
 typedef enum {
-    EV_WIFI_CONNECT_SUCCESS,
-    EV_QR_CAPTURED,
-    EV_SCAN_SUCCESS,
-    EV_SCAN_INVALID,
-    EV_PRODUCT_FOUND,
-    EV_PRODUCT_NOT_FOUND,
-    EV_STOCK_UPDATED,
-    EV_MQTT_CONNECT_FAILURE,
-    EV_MQTT_CONNECT_SUCCESS,
+    EV_SETUP_FAILURE,
+    EV_SETUP_SUCCESS,
+    EV_QR_SCANNED,
+
+    EV_QR_RECEIVED,
+
     EV_MQTT_PUBLISH_SUCCESS,
     EV_MQTT_PUBLISH_FAILURE,
+
+    EV_PRODUCT_FOUND,
+    EV_PRODUCT_NOT_FOUND,
+
+    EV_STOCK_UPDATE_SUCCESS,
+    EV_STOCK_UPDATE_FAILURE,
+
     EV_BTN_UP,
     EV_BTN_DOWN,
     EV_BTN_SELECT,
     EV_BTN_EXIT,
+
     EV_TIMEOUT
 } EventType;
 

@@ -222,36 +222,24 @@ static void action_mqtt_publish_failure(void) {
     action_reset_to_idle();
 }
 
-static const Transition transition_table[] = {
-    // ENTRIES DE LA PLACA [A]
-    {STATE_IDLE, EV_WIFI_CONNECT_SUCCESS, STATE_IDLE, action_wifi_connected},
-    {STATE_IDLE, EV_MQTT_CONNECT_SUCCESS, STATE_IDLE, action_mqtt_connected},
-    {STATE_IDLE, EV_MQTT_CONNECT_FAILURE, STATE_IDLE, action_mqtt_disconnected},
+static const Transition transition_table_a[] = {
+    {STATE_SETUP, EV_SETUP_SUCCESS, STATE_IDLE, action_wifi_connected},
+    {STATE_SETUP, EV_SETUP_FAILURE, STATE_SETUP, action_wifi_connected},
 
-    {STATE_IDLE, EV_QR_CAPTURED, STATE_SCAN_PROCESSING, action_enter_scan_processing},
+    {STATE_IDLE, EV_QR_SCANNED, STATE_MQTT_PUBLISHING, action_enter_scan_processing},
 
-    {STATE_SCAN_PROCESSING, EV_SCAN_SUCCESS, STATE_LOCAL_DB_LOOKUP, action_enter_db_lookup},
-    {STATE_SCAN_PROCESSING, EV_SCAN_INVALID, STATE_ERROR_DISPLAY, action_enter_error_display},
+    {STATE_MQTT_PUBLISHING, EV_MQTT_PUBLISH_SUCCESS, STATE_IDLE, action_enter_scan_processing},
+    {STATE_MQTT_PUBLISHING, EV_MQTT_PUBLISH_FAILURE, STATE_ERROR, action_enter_scan_processing},
 
-    {STATE_LOCAL_DB_LOOKUP, EV_PRODUCT_FOUND, STATE_PROMPT_ADD_PRODUCT, action_product_found},
-    {STATE_LOCAL_DB_LOOKUP, EV_PRODUCT_NOT_FOUND, STATE_ERROR_DISPLAY, action_product_not_found},
+    {STATE_ERROR, EV_MQTT_PUBLISH_FAILURE, STATE_IDLE, action_enter_scan_processing},
+    {STATE_ERROR, EV_MQTT_PUBLISH_FAILURE, STATE_IDLE, action_enter_scan_processing},
+};
 
-    {STATE_PROMPT_ADD_PRODUCT, EV_BTN_CONFIRM, STATE_QUANTITY_SELECTION, action_enter_quantity_selection},
-    {STATE_PROMPT_ADD_PRODUCT, EV_BTN_CANCEL, STATE_IDLE, action_cancel},
-    {STATE_PROMPT_ADD_PRODUCT, EV_TIMEOUT, STATE_IDLE, action_reset_to_idle},
+static const Transition transition_table_b[] = {
+    {STATE_SETUP, EV_SETUP_SUCCESS, STATE_IDLE, action_wifi_connected},
+    {STATE_SETUP, EV_SETUP_FAILURE, STATE_SETUP, action_wifi_connected},
 
-    {STATE_QUANTITY_SELECTION, EV_BTN_UP, STATE_QUANTITY_SELECTION, action_quantity_up},
-    {STATE_QUANTITY_SELECTION, EV_BTN_DOWN, STATE_QUANTITY_SELECTION, action_quantity_down},
-    {STATE_QUANTITY_SELECTION, EV_BTN_CONFIRM, STATE_STOCK_UPDATING, action_enter_stock_updating},
-    {STATE_QUANTITY_SELECTION, EV_BTN_CANCEL, STATE_IDLE, action_cancel},
-
-    {STATE_STOCK_UPDATING, EV_STOCK_UPDATED, STATE_DISPLAY_PRODUCT_INFO, action_stock_updated},
-    {STATE_STOCK_UPDATING, EV_SCAN_INVALID, STATE_ERROR_DISPLAY, action_enter_error_display},
-
-    {STATE_DISPLAY_PRODUCT_INFO, EV_TIMEOUT, STATE_MQTT_PUBLISHING, action_enter_mqtt_publishing},
-
-    // ENTRIES DE LA PLACA [B]
-    // {STATE_WAITING_FOR_SCAN, EV_LINK_SCAN_RECEIVED, STATE_REMOTE_DB_LOOKUP, action_enter_db_lookup},
+    {STATE_IDLE, EV_QR_RECEIVED, STATE_LOCAL_DB_LOOKUP, action_enter_scan_processing},
 
     {STATE_REMOTE_DB_LOOKUP, EV_PRODUCT_FOUND, STATE_REMOTE_STOCK_UPDATING, action_product_found},
     {STATE_REMOTE_DB_LOOKUP, EV_PRODUCT_NOT_FOUND, STATE_ERROR_DISPLAY, action_product_not_found},
