@@ -51,6 +51,12 @@ void qr_handler_init(void)
         ESP_LOGE(TAG, "No se pudo inicializar la cámara.");
         return;
     }
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_contrast(s, 2);      // más contraste: -2 a 2
+    s->set_brightness(s, 0);    // brillo normal
+    s->set_saturation(s, -2);   // menos saturación (ya es grayscale pero ayuda)
+    s->set_sharpness(s, 2);     // más nitidez
+    
     ESP_LOGI(TAG, "Cámara inicializada.");
     xTaskCreate(qr_scan_task, "qr_scan", 32768, NULL, 4, NULL);
 }
