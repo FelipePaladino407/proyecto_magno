@@ -933,6 +933,40 @@ CONFIG_COMPILER_CXX_GLIBCXX_CONSTEXPR_NO_CHANGE=y
 #
 
 #
+# Legacy Driver Configurations
+#
+
+#
+# Legacy TWAI Driver Configurations
+#
+# default:
+# CONFIG_TWAI_ISR_IN_IRAM_LEGACY is not set
+# default:
+# CONFIG_TWAI_SUPPRESS_DEPRECATE_WARN is not set
+# default:
+# CONFIG_TWAI_SKIP_LEGACY_CONFLICT_CHECK is not set
+# end of Legacy TWAI Driver Configurations
+
+#
+# Legacy I2C Driver Configurations
+#
+# default:
+# CONFIG_I2C_SUPPRESS_DEPRECATE_WARN is not set
+# default:
+# CONFIG_I2C_SKIP_LEGACY_CONFLICT_CHECK is not set
+# end of Legacy I2C Driver Configurations
+
+#
+# Legacy Touch Sensor Driver Configurations
+#
+# default:
+# CONFIG_TOUCH_SUPPRESS_DEPRECATE_WARN is not set
+# default:
+# CONFIG_TOUCH_SKIP_LEGACY_CONFLICT_CHECK is not set
+# end of Legacy Touch Sensor Driver Configurations
+# end of Legacy Driver Configurations
+
+#
 # eFuse Bit Manager
 #
 # default:
@@ -996,6 +1030,24 @@ CONFIG_ESP_ERR_TO_NAME_LOOKUP=y
 # end of ESP-Driver:GPIO Configurations
 
 #
+# ESP-Driver:I2C Configurations
+#
+# default:
+# CONFIG_I2C_ISR_IRAM_SAFE is not set
+# default:
+# CONFIG_I2C_ENABLE_DEBUG_LOG is not set
+# default:
+CONFIG_I2C_MASTER_ISR_HANDLER_IN_IRAM=y
+# end of ESP-Driver:I2C Configurations
+
+#
+# ESP-Driver:LEDC Configurations
+#
+# default:
+# CONFIG_LEDC_CTRL_FUNC_IN_IRAM is not set
+# end of ESP-Driver:LEDC Configurations
+
+#
 # ESP-Driver:RMT Configurations
 #
 # default:
@@ -1017,6 +1069,17 @@ CONFIG_RMT_OBJ_CACHE_SAFE=y
 # default:
 # CONFIG_RMT_ISR_IRAM_SAFE is not set
 # end of ESP-Driver:RMT Configurations
+
+#
+# ESP-Driver:SPI Configurations
+#
+# default:
+CONFIG_SPI_MASTER_ISR_IN_IRAM=y
+# default:
+# CONFIG_SPI_SLAVE_IN_IRAM is not set
+# default:
+CONFIG_SPI_SLAVE_ISR_IN_IRAM=y
+# end of ESP-Driver:SPI Configurations
 
 #
 # ESP-Driver:UART Configurations
@@ -1214,6 +1277,8 @@ CONFIG_ESP_BROWNOUT_USE_INTR=y
 # end of Brownout Detector
 # end of Power Supplier
 
+# default:
+CONFIG_ESP_SPI_BUS_LOCK_ISR_FUNCS_IN_IRAM=y
 # default:
 CONFIG_ESP_INTR_IN_IRAM=y
 # end of Hardware Settings
@@ -2789,6 +2854,106 @@ CONFIG_CJSON_NESTING_LIMIT=1000
 # default:
 CONFIG_CJSON_CIRCULAR_LIMIT=10000
 # end of cJSON
+
+#
+# Camera configuration
+#
+# default:
+CONFIG_OV7670_SUPPORT=y
+# default:
+CONFIG_OV7725_SUPPORT=y
+# default:
+CONFIG_NT99141_SUPPORT=y
+# default:
+CONFIG_OV2640_SUPPORT=y
+# default:
+CONFIG_OV3660_SUPPORT=y
+# default:
+CONFIG_OV5640_SUPPORT=y
+# default:
+# CONFIG_CAMERA_AF_SUPPORT is not set
+# default:
+CONFIG_GC2145_SUPPORT=y
+# default:
+CONFIG_GC032A_SUPPORT=y
+# default:
+CONFIG_GC0308_SUPPORT=y
+# default:
+CONFIG_BF3005_SUPPORT=y
+# default:
+CONFIG_BF20A6_SUPPORT=y
+# default:
+# CONFIG_SC101IOT_SUPPORT is not set
+# default:
+CONFIG_SC030IOT_SUPPORT=y
+# default:
+# CONFIG_SC031GS_SUPPORT is not set
+# default:
+CONFIG_HM1055_SUPPORT=y
+# default:
+CONFIG_HM0360_SUPPORT=y
+# default:
+CONFIG_MEGA_CCM_SUPPORT=y
+# default:
+# CONFIG_SCCB_HARDWARE_I2C_DRIVER_LEGACY is not set
+# default:
+CONFIG_SCCB_HARDWARE_I2C_DRIVER_NEW=y
+# default:
+# CONFIG_SCCB_HARDWARE_I2C_PORT0 is not set
+# default:
+CONFIG_SCCB_HARDWARE_I2C_PORT1=y
+# default:
+CONFIG_SCCB_CLK_FREQ=100000
+# default:
+# CONFIG_GC_SENSOR_WINDOWING_MODE is not set
+# default:
+CONFIG_GC_SENSOR_SUBSAMPLE_MODE=y
+# default:
+CONFIG_CAMERA_TASK_STACK_SIZE=4096
+# default:
+CONFIG_CAMERA_CORE0=y
+# default:
+# CONFIG_CAMERA_CORE1 is not set
+# default:
+# CONFIG_CAMERA_NO_AFFINITY is not set
+# default:
+CONFIG_CAMERA_DMA_BUFFER_SIZE_MAX=32768
+# default:
+# CONFIG_CAMERA_PSRAM_DMA is not set
+# default:
+CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE_AUTO=y
+# default:
+# CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE_CUSTOM is not set
+# default:
+# CONFIG_LCD_CAM_ISR_IRAM_SAFE is not set
+# end of Camera configuration
+
+#
+# JPEG Decoder
+#
+# default:
+CONFIG_JD_SZBUF=512
+# default:
+CONFIG_JD_FORMAT=0
+# default:
+CONFIG_JD_FORMAT_RGB888=y
+# default:
+# CONFIG_JD_FORMAT_RGB565 is not set
+# default:
+CONFIG_JD_USE_SCALE=y
+# default:
+CONFIG_JD_TBLCLIP=y
+# default:
+CONFIG_JD_FASTDECODE=1
+# default:
+# CONFIG_JD_FASTDECODE_BASIC is not set
+# default:
+CONFIG_JD_FASTDECODE_32BIT=y
+# default:
+# CONFIG_JD_FASTDECODE_TABLE is not set
+# default:
+# CONFIG_JD_DEFAULT_HUFFMAN is not set
+# end of JPEG Decoder
 
 #
 # ESP-MQTT Configurations
