@@ -1,6 +1,5 @@
 #include "shared_types.h"
 
-// Definición real: aquí sí se reserva la memoria
 const ProductoCatalogo catalogo_completo[CATALOGO_SIZE] = {
     {"LAC-LEC-001", "Leche Entera 1L"},
     {"LAC-LEC-002", "Leche Descremada 1L"},

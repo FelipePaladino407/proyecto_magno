@@ -55,7 +55,7 @@ static bool mqtt_publish_qr_cb(const Product *product)
         return false;
     }
 
-    return procesar_y_publicar_qr(*product); // este ya devuelve true si sale bien.
+    return procesar_y_publicar(*product); // este ya devuelve true si sale bien.
 }
 
 static bool mqtt_publish_error_cb(const char *message)
