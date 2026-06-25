@@ -38,6 +38,7 @@ static void qr_scan_task(void *pvParameters)
             quirc_extract(qr, i, &code_struct);
             if (quirc_decode(&code_struct, &data) == QUIRC_SUCCESS) {
                 ESP_LOGI(TAG, "QR: %s", (char *)data.payload);
+                vTaskDelay(pdMS_TO_TICKS(3000));  // Espera 3 segundos antes de continuar para evitar lecturas repetidas
             }
         }
 
