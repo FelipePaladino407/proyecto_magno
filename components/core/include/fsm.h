@@ -4,35 +4,22 @@
 #include <stdbool.h>
 #include "ev_queue.h"
 
-/* Alias semánticos: el touch tiene SELECT/EXIT, la FSM los interpreta como confirmar/cancelar. */
-#define EV_BTN_CONFIRM EV_BTN_SELECT
-#define EV_BTN_CANCEL  EV_BTN_EXIT
-
 typedef enum {
     STATE_SETUP,
     STATE_IDLE,
 
-    // placa A
     STATE_SCAN_PROCESSING,
-    STATE_LOCAL_DB_LOOKUP,
+    STATE_DB_LOOKUP,
     STATE_PROMPT_ADD_PRODUCT,
     STATE_QUANTITY_SELECTION,
     STATE_STOCK_UPDATING,
-    STATE_DISPLAY_PRODUCT_INFO,
+    STATE_PRODUCT_OVERVIEW,
 
-    // placa B
-    STATE_WAITING_FOR_SCAN,
-    STATE_REMOTE_DB_LOOKUP,
-    STATE_REMOTE_STOCK_UPDATING,
-
-    // comun
     STATE_MQTT_PUBLISHING,
     STATE_ERROR,
-
-    STATE_COUNT
 } State;
 
-// todos los estados tienen un timer que puede cortar todo con un EV_TIMEOUT
+// todos los estados tienen un timer que puede cortar todo con un EV_TIMEOUT?
 
 void fsm_init(void);
 void fsm_execute_transition(EventType event);

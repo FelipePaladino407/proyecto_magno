@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 
+#define EV_BTN_OK EV_BTN_SELECT
+
 typedef enum {
     EV_SETUP_FAILURE,
     EV_SETUP_SUCCESS,
@@ -24,7 +26,7 @@ typedef enum {
     EV_BTN_UP,
     EV_BTN_DOWN,
     EV_BTN_SELECT,
-    EV_BTN_EXIT,
+    EV_BTN_RETURN,
 
     EV_TIMEOUT
 } EventType;

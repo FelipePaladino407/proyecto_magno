@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Ahora las variables estan encapsuladas en un struct
 typedef struct {
     Product current_product;
     bool current_product_valid;
@@ -25,26 +24,6 @@ void app_logic_set_selected_quantity(uint32_t quantity);
 void app_logic_set_active_product(const Product *product);
 void app_logic_set_last_error(const char *msg);
 void app_logic_reset_context(void);
-
-// Callbacks
-typedef struct {
-    void (*on_display_message)(const char *title, const char *message);
-    void (*on_display_product)(const Product *product);
-    void (*on_enter_scan_processing)(void);
-    void (*on_enter_db_lookup)(void);
-    void (*on_enter_stock_updating)(void);
-    void (*on_enter_mqtt_publishing)(void);
-    void (*on_mqtt_publish_success)(void);
-    void (*on_mqtt_publish_failure)(void);
-    void (*on_link_transmit)(const Product *product, uint32_t quantity);
-    void (*on_link_scan_received)(void);
-    void (*on_enter_error_display)(const char *error_msg);
-
-} AppLogicCallbacks;
-
-void app_logic_register(const AppLogicCallbacks *callbacks);
-
-const AppLogicCallbacks *app_logic_get(void);
 
 void app_logic_board_a_init(void);
 void app_logic_board_b_init(void);
