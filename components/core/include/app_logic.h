@@ -25,7 +25,16 @@ void app_logic_set_active_product(const Product *product);
 void app_logic_set_last_error(const char *msg);
 void app_logic_reset_context(void);
 
-void app_logic_board_a_init(void);
-void app_logic_board_b_init(void);
+static void action_setup(void);
+static void action_reset_to_idle(void);
+static void action_throw_error(void);
+static void action_db_lookup(void);
+static void action_prompt_add_product(void);
+static void action_enter_quantity_selection(void);
+static void action_quantity_up(void);
+static void action_quantity_down(void);
+static void action_stock_update(void);
+static void action_product_overview(void);
+static void action_mqtt_publish(void);
 
 #endif

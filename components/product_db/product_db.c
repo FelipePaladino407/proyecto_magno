@@ -1,12 +1,11 @@
 #include "product_db.h"
 
-#include <string.h>
 #include "hash_table.h"
+#include <string.h>
 
 static HashTable s_product_table;
 
-static void safe_copy(char *dest, const char *src, size_t dest_size)
-{
+static void safe_copy(char *dest, const char *src, size_t dest_size) {
     if (dest == NULL || dest_size == 0) {
         return;
     }
@@ -20,16 +19,11 @@ static void safe_copy(char *dest, const char *src, size_t dest_size)
     dest[dest_size - 1] = '\0';
 }
 
-void product_db_init(void)
-{
+void product_db_init(void) {
     hash_table_init(&s_product_table);
 }
 
-bool product_db_upsert_product(const char *id,
-                               const char *name,
-                               uint32_t stock,
-                               Product *out_product)
-{
+bool product_db_upsert_product(const char *id, const char *name, uint32_t stock, Product *out_product) {
     if (id == NULL || name == NULL || id[0] == '\0') {
         return false;
     }
@@ -52,10 +46,7 @@ bool product_db_upsert_product(const char *id,
     return true;
 }
 
-bool product_db_add_stock(const char *id,
-                          uint32_t quantity,
-                          Product *out_product)
-{
+bool product_db_add_stock(const char *id, uint32_t quantity, Product *out_product) {
     if (id == NULL || id[0] == '\0' || quantity == 0) {
         return false;
     }
@@ -75,10 +66,7 @@ bool product_db_add_stock(const char *id,
     return true;
 }
 
-bool product_db_register_scan(const char *id,
-                              const char *name,
-                              Product *out_product)
-{
+bool product_db_register_scan(const char *id, const char *name, Product *out_product) {
     Product existing_product;
 
     if (id == NULL || name == NULL || id[0] == '\0') {
@@ -92,9 +80,7 @@ bool product_db_register_scan(const char *id,
     return product_db_upsert_product(id, name, 1, out_product);
 }
 
-bool product_db_find_by_id(const char *id,
-                           Product *out_product)
-{
+bool product_db_find_by_id(const char *id, Product *out_product) {
     if (id == NULL || out_product == NULL) {
         return false;
     }
@@ -109,9 +95,7 @@ bool product_db_find_by_id(const char *id,
     return true;
 }
 
-bool product_db_decrement_stock(const char *id,
-                                Product *out_product)
-{
+bool product_db_decrement_stock(const char *id, Product *out_product) {
     if (id == NULL) {
         return false;
     }
@@ -135,8 +119,7 @@ bool product_db_decrement_stock(const char *id,
     return true;
 }
 
-bool product_db_remove_product(const char *id)
-{
+bool product_db_remove_product(const char *id) {
     if (id == NULL) {
         return false;
     }
@@ -144,8 +127,6 @@ bool product_db_remove_product(const char *id)
     return hash_table_remove(&s_product_table, id);
 }
 
-uint32_t product_db_get_count(void)
-{
+uint32_t product_db_get_count(void) {
     return (uint32_t)s_product_table.count;
 }
-

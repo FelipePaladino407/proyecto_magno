@@ -4,23 +4,10 @@
 #include "ev_queue.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
-#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "FSM";
-
-typedef struct {
-    State state;
-    EventType event;
-    State next_state;
-    void (*action)(void);
-} Transition;
-
 static State current_state;
-
-State fsm_get_state(void) {
-    return current_state;
-}
 
 static const Transition transition_table_a[] = {
     {STATE_SETUP, EV_SETUP_SUCCESS, STATE_IDLE, action_reset_to_idle}, //
@@ -44,16 +31,16 @@ static const Transition transition_table_b[] = {
     {STATE_DB_LOOKUP, EV_PRODUCT_FOUND, STATE_PROMPT_ADD_PRODUCT, action_prompt_add_product}, //
     {STATE_DB_LOOKUP, EV_PRODUCT_NOT_FOUND, STATE_ERROR, action_throw_error},                 //
 
-    {STATE_PROMPT_ADD_PRODUCT, EV_BTN_SELECT, STATE_QUANTITY_SELECTION, action_mqtt_publish},
-    {STATE_PROMPT_ADD_PRODUCT, EV_BTN_RETURN, STATE_IDLE, action_reset_to_idle}, //
+    {STATE_PROMPT_ADD_PRODUCT, EV_BTN_SELECT, STATE_QUANTITY_SELECTION, action_enter_quantity_selection}, //
+    {STATE_PROMPT_ADD_PRODUCT, EV_BTN_RETURN, STATE_IDLE, action_reset_to_idle},                          //
 
     {STATE_QUANTITY_SELECTION, EV_BTN_UP, STATE_QUANTITY_SELECTION, action_quantity_up},     //
     {STATE_QUANTITY_SELECTION, EV_BTN_DOWN, STATE_QUANTITY_SELECTION, action_quantity_down}, //
     {STATE_QUANTITY_SELECTION, EV_BTN_SELECT, STATE_STOCK_UPDATING, action_stock_update},
     {STATE_QUANTITY_SELECTION, EV_BTN_RETURN, STATE_IDLE, action_reset_to_idle}, //
 
-    {STATE_STOCK_UPDATING, EV_STOCK_UPDATE_SUCCESS, STATE_PRODUCT_OVERVIEW, action_product_overview},
-    {STATE_STOCK_UPDATING, EV_STOCK_UPDATE_FAILURE, STATE_ERROR, action_throw_error}, //
+    {STATE_STOCK_UPDATING, EV_STOCK_UPDATE_SUCCESS, STATE_PRODUCT_OVERVIEW, action_product_overview}, //
+    {STATE_STOCK_UPDATING, EV_STOCK_UPDATE_FAILURE, STATE_ERROR, action_throw_error},                 //
 
     {STATE_PRODUCT_OVERVIEW, EV_BTN_SELECT, STATE_MQTT_PUBLISHING, action_mqtt_publish}, //
 
@@ -84,15 +71,13 @@ void fsm_task(void *pvParameters) {
     }
 }
 
-void fsm_execute_transition(EventType event, Transition transition_table[]) {
-    const int table_lenght = sizeof(transition_table) / sizeof(transition_table[0]);
-
+void fsm_execute_transition(EventType event, const Transition transition_table[], size_t table_length) {
     if (current_state == STATE_IDLE && (event == EV_MQTT_PUBLISH_SUCCESS || event == EV_MQTT_PUBLISH_FAILURE)) {
         ESP_LOGD(TAG, "Ignorando ACK MQTT tardio en IDLE");
         return;
-    } // puede ser
+    }
 
-    for (int i = 0; i < table_lenght; i++) {
+    for (size_t i = 0; i < table_length; i++) {
         if (transition_table[i].state == current_state && transition_table[i].event == event) {
 
             State previous_state = current_state;
@@ -109,4 +94,8 @@ void fsm_execute_transition(EventType event, Transition transition_table[]) {
     }
 
     ESP_LOGW(TAG, "No transition found for state %d + event %d", current_state, event);
+}
+
+State fsm_get_state(void) {
+    return current_state;
 }

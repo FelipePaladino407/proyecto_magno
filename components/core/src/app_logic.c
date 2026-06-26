@@ -1,6 +1,7 @@
 #include "app_logic.h"
 #include "esp_log.h"
 #include "ev_queue.h"
+#include "product_db.h"
 #include <string.h>
 
 static const char *TAG = "APP_LOGIC";
@@ -123,9 +124,7 @@ static void action_enter_quantity_selection(void) {
     char msg[32];
     snprintf(msg, sizeof(msg), "Cantidad: 1");
 
-    if (cb()->on_display_message != NULL) {
-        cb()->on_display_message("Seleccione cantidad", msg);
-    }
+    // show changes on display
 }
 
 static void action_quantity_up(void) {
@@ -137,9 +136,7 @@ static void action_quantity_up(void) {
     char msg[32];
     snprintf(msg, sizeof(msg), "Cantidad: %lu", (unsigned long)qty);
 
-    if (cb()->on_display_message != NULL) {
-        cb()->on_display_message("Seleccione cantidad", msg);
-    }
+    // show changes on display
 }
 
 static void action_quantity_down(void) {
@@ -151,9 +148,7 @@ static void action_quantity_down(void) {
     char msg[32];
     snprintf(msg, sizeof(msg), "Cantidad: %lu", (unsigned long)qty);
 
-    if (cb()->on_display_message != NULL) {
-        cb()->on_display_message("Seleccione cantidad", msg);
-    }
+    // show changes on display
 }
 
 static void action_stock_update(void) {
@@ -161,7 +156,7 @@ static void action_stock_update(void) {
 
     if (!app_logic_get_active_product(&current)) {
         app_logic_set_last_error("No hay producto activo para actualizar");
-        ev_queue_post();
+        ev_queue_post(EV_STOCK_UPDATE_FAILURE);
         return;
     }
 
@@ -175,7 +170,7 @@ static void action_stock_update(void) {
         app_logic_set_last_error(err);
 
         ESP_LOGE(TAG, "%s", err);
-        ev_queue_post(EV_SCAN_INVALID);
+        ev_queue_post(EV_STOCK_UPDATE_FAILURE);
         return;
     }
 
@@ -184,7 +179,7 @@ static void action_stock_update(void) {
     ESP_LOGI(TAG, "Stock actualizado -> ID=%s | Agregado=%lu | Stock=%lu", updated.id, (unsigned long)qty,
              (unsigned long)updated.stock);
 
-    ev_queue_post(EV_STOCK_UPDATED);
+    ev_queue_post(EV_STOCK_UPDATE_SUCCESS);
 }
 
 static void action_product_overview(void) {

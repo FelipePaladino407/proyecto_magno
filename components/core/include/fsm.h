@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "ev_queue.h"
 
+// todos los estados tienen un timer que puede cortar todo con un EV_TIMEOUT?
 typedef enum {
     STATE_SETUP,
     STATE_IDLE,
@@ -19,10 +20,15 @@ typedef enum {
     STATE_ERROR,
 } State;
 
-// todos los estados tienen un timer que puede cortar todo con un EV_TIMEOUT?
+typedef struct {
+    State state;
+    EventType event;
+    State next_state;
+    void (*action)(void);
+} Transition;
 
 void fsm_init(void);
-void fsm_execute_transition(EventType event);
+void fsm_execute_transition(EventType event, const Transition transition_table[], size_t table_length);
 State fsm_get_state(void);
 void fsm_task(void *pvParameters);
 
