@@ -20,3 +20,5 @@ dependencies:
     version: "^2.0.0"
   espressif/quirc:
     version: "^1.2.0"
+  lvgl/lvgl:
+    version: "^9.5.0"

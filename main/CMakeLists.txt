@@ -13,5 +13,7 @@ idf_component_register(SRCS
                     unit_test
                     product_db
                     pending_queue
+                    lcd_port
+                    lcd_manager
                     
                     INCLUDE_DIRS ".")

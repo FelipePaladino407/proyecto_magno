@@ -1,17 +1,20 @@
 #include "fsm.h"
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-
-#include "esp_log.h"
-#include "product_db.h"
-
 #include <stdio.h>
 #include <string.h>
+
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/timers.h"
+#include "product_db.h"
 
 extern QueueHandle_t fsm_event_queue;
 
 static const char *TAG = "FSM";
+
+#define FSM_DISPLAY_HOLD_MS 2500
+#define FSM_IDLE_SCREEN_DELAY_MS 800
 
 static State current_state;
 static Product active_product;
@@ -20,6 +23,8 @@ static uint32_t selected_quantity;
 static char last_error[64];
 static FsmCallbacks s_callbacks;
 static bool s_auto_events_enabled = true;
+static TimerHandle_t s_timeout_timer = NULL;
+static TimerHandle_t s_idle_screen_timer = NULL;
 
 typedef struct {
     State state;
@@ -69,6 +74,144 @@ static void display_product(const Product *product)
     }
 }
 
+static void ui_show_waiting(void)
+{
+    ESP_LOGI("LCD_SIM", "CONTROL STOCK | Esperando QR");
+
+    if (s_callbacks.show_waiting != NULL) {
+        s_callbacks.show_waiting();
+    } else {
+        display_message("Control Stock", "Esperando QR");
+    }
+}
+
+static void ui_show_product_prompt(void)
+{
+    char message[96];
+
+    snprintf(message, sizeof(message), "Desea agregar %s?", active_product.name);
+    ESP_LOGI("LCD_SIM", "Producto reconocido | %s | Cantidad inicial=%lu",
+             message,
+             (unsigned long)selected_quantity);
+
+    if (s_callbacks.show_product_prompt != NULL) {
+        s_callbacks.show_product_prompt(&active_product, selected_quantity);
+    } else if (s_callbacks.show_quantity_selection != NULL) {
+        s_callbacks.show_quantity_selection(&active_product, selected_quantity);
+    } else {
+        display_message("Producto reconocido", message);
+    }
+}
+
+static void ui_show_quantity_selection(void)
+{
+    char message[96];
+
+    snprintf(message, sizeof(message), "Cantidad: %lu", (unsigned long)selected_quantity);
+    ESP_LOGI("LCD_SIM", "Seleccione cantidad | %s", message);
+
+    if (s_callbacks.show_quantity_selection != NULL) {
+        s_callbacks.show_quantity_selection(&active_product, selected_quantity);
+    } else if (s_callbacks.show_product_prompt != NULL) {
+        s_callbacks.show_product_prompt(&active_product, selected_quantity);
+    } else {
+        display_message("Seleccione cantidad", message);
+    }
+}
+
+static void ui_show_success(void)
+{
+    ESP_LOGI("LCD_SIM", "Producto actualizado | ID:%s | Nombre:%s | Stock:%lu",
+             active_product.id,
+             active_product.name,
+             (unsigned long)active_product.stock);
+
+    if (s_callbacks.show_success != NULL) {
+        s_callbacks.show_success(&active_product);
+    } else {
+        display_product(&active_product);
+    }
+}
+
+static void ui_show_cancelled(void)
+{
+    ESP_LOGI("LCD_SIM", "Cancelado | No se modifico el stock");
+
+    if (s_callbacks.show_cancelled != NULL) {
+        s_callbacks.show_cancelled();
+    } else {
+        display_message("Cancelado", "No se modifico el stock");
+    }
+}
+
+static void ui_show_error(const char *message)
+{
+    const char *safe_message = message != NULL ? message : "Error desconocido";
+
+    ESP_LOGI("LCD_SIM", "ERROR | %s", safe_message);
+
+    if (s_callbacks.show_error != NULL) {
+        s_callbacks.show_error(safe_message);
+    } else {
+        display_message("Error", safe_message);
+    }
+}
+
+static void cancel_timeout_timer(void)
+{
+    if (s_timeout_timer != NULL) {
+        (void)xTimerStop(s_timeout_timer, 0);
+    }
+}
+
+static void cancel_idle_screen_timer(void)
+{
+    if (s_idle_screen_timer != NULL) {
+        (void)xTimerStop(s_idle_screen_timer, 0);
+    }
+}
+
+static void timeout_timer_callback(TimerHandle_t timer)
+{
+    (void)timer;
+
+    if (!fsm_post_event(EV_TIMEOUT)) {
+        ESP_LOGW(TAG, "No se pudo postear EV_TIMEOUT desde timer");
+    }
+}
+
+static void idle_screen_timer_callback(TimerHandle_t timer)
+{
+    (void)timer;
+
+    if (current_state == STATE_IDLE) {
+        ui_show_waiting();
+    }
+}
+
+static void schedule_timeout_event(uint32_t delay_ms)
+{
+    if (s_timeout_timer == NULL) {
+        ESP_LOGW(TAG, "Timer de timeout no inicializado");
+        return;
+    }
+
+    (void)xTimerStop(s_timeout_timer, 0);
+    (void)xTimerChangePeriod(s_timeout_timer, pdMS_TO_TICKS(delay_ms), 0);
+    (void)xTimerStart(s_timeout_timer, 0);
+}
+
+static void schedule_idle_screen(uint32_t delay_ms)
+{
+    if (s_idle_screen_timer == NULL) {
+        return;
+    }
+
+    (void)xTimerStop(s_idle_screen_timer, 0);
+    (void)xTimerChangePeriod(s_idle_screen_timer, pdMS_TO_TICKS(delay_ms), 0);
+    (void)xTimerStart(s_idle_screen_timer, 0);
+}
+
 static void post_event_or_log(EventType event)
 {
     if (!s_auto_events_enabled) {
@@ -96,6 +239,7 @@ static void return_to_idle(void)
     ESP_LOGI(TAG, "Volviendo a IDLE");
     active_product_valid = false;
     selected_quantity = 1;
+    schedule_idle_screen(FSM_IDLE_SCREEN_DELAY_MS);
 }
 
 static void handle_wifi_connected(void)
@@ -122,9 +266,12 @@ static void handle_mqtt_disconnected(void)
 static void handle_qr_scan(void)
 {
     ESP_LOGI(TAG, "Procesando QR recibido");
+    cancel_idle_screen_timer();
 
     if (!active_product_valid || active_product.id[0] == '\0') {
-        safe_copy(last_error, "QR invalido o vacio", sizeof(last_error));
+        if (last_error[0] == '\0') {
+            safe_copy(last_error, "QR invalido o vacio", sizeof(last_error));
+        }
         post_event_or_log(EV_SCAN_INVALID);
         return;
     }
@@ -137,13 +284,13 @@ static void handle_scan_invalid(void)
     const char *message = last_error[0] != '\0' ? last_error : "QR invalido";
 
     ESP_LOGW(TAG, "%s", message);
-    display_message("QR invalido", "No se agrega nada");
+    ui_show_error(message);
 
     if (s_callbacks.publish_error != NULL) {
         (void)s_callbacks.publish_error(message);
     }
 
-    post_event_or_log(EV_TIMEOUT);
+    schedule_timeout_event(FSM_DISPLAY_HOLD_MS);
 }
 
 static void lookup_product(void)
@@ -181,40 +328,35 @@ static void lookup_product(void)
 
 static void prompt_add_product(void)
 {
-    char message[96];
-    snprintf(message, sizeof(message), "Desea agregar %s?", active_product.name);
-    display_message("Producto reconocido", message);
+    ui_show_product_prompt();
 }
 
 static void handle_product_not_found(void)
 {
-    ESP_LOGW(TAG, "%s", last_error[0] != '\0' ? last_error : "Producto no registrado");
-    display_message("No registrado", "Producto fuera del catalogo");
+    const char *message = last_error[0] != '\0' ? last_error : "Producto no registrado";
+
+    ESP_LOGW(TAG, "%s", message);
+    ui_show_error("Producto fuera del catalogo");
 
     /* Nueva regla: si no esta en catalogo, no se abre ingreso manual viejo. */
-    post_event_or_log(EV_TIMEOUT);
+    schedule_timeout_event(FSM_DISPLAY_HOLD_MS);
 }
 
 static void cancel_add_product(void)
 {
-    display_message("Cancelado", "No se modifico el stock");
+    ui_show_cancelled();
     return_to_idle();
 }
 
 static void prompt_quantity_selection(void)
 {
     selected_quantity = 1;
-
-    char message[96];
-    snprintf(message, sizeof(message), "Cantidad: %lu", (unsigned long)selected_quantity);
-    display_message("Seleccione cantidad", message);
+    ui_show_quantity_selection();
 }
 
 static void update_quantity_display(void)
 {
-    char message[96];
-    snprintf(message, sizeof(message), "Cantidad: %lu", (unsigned long)selected_quantity);
-    display_message("Seleccione cantidad", message);
+    ui_show_quantity_selection();
 }
 
 static void increment_quantity(void)
@@ -268,10 +410,10 @@ static void update_stock_with_selected_quantity(void)
 
 static void display_updated_product(void)
 {
-    display_product(&active_product);
+    ui_show_success();
 
-    /* En la demo se continua solo hacia publicacion luego de mostrar. */
-    post_event_or_log(EV_TIMEOUT);
+    /* Con LCD real conviene dejar visible el resultado antes de publicar. */
+    schedule_timeout_event(FSM_DISPLAY_HOLD_MS);
 }
 
 static void execute_mqtt_publish(void)
@@ -309,7 +451,7 @@ static void save_to_local_buffer(void)
         display_message("Sin conexion", "Producto guardado pendiente");
     } else {
         ESP_LOGE(TAG, "Fallo de publicacion y no se pudo guardar pendiente en NVS");
-        display_message("Error", "No se pudo guardar pendiente");
+        ui_show_error("No se pudo guardar pendiente");
     }
 
     return_to_idle();
@@ -356,6 +498,30 @@ void fsm_init(void)
     active_product_valid = false;
     selected_quantity = 1;
     last_error[0] = '\0';
+    cancel_timeout_timer();
+    cancel_idle_screen_timer();
+
+    if (s_timeout_timer == NULL) {
+        s_timeout_timer = xTimerCreate("fsm_timeout",
+                                       pdMS_TO_TICKS(FSM_DISPLAY_HOLD_MS),
+                                       pdFALSE,
+                                       NULL,
+                                       timeout_timer_callback);
+        if (s_timeout_timer == NULL) {
+            ESP_LOGE(TAG, "No se pudo crear el timer fsm_timeout");
+        }
+    }
+
+    if (s_idle_screen_timer == NULL) {
+        s_idle_screen_timer = xTimerCreate("fsm_idle_screen",
+                                           pdMS_TO_TICKS(FSM_IDLE_SCREEN_DELAY_MS),
+                                           pdFALSE,
+                                           NULL,
+                                           idle_screen_timer_callback);
+        if (s_idle_screen_timer == NULL) {
+            ESP_LOGE(TAG, "No se pudo crear el timer fsm_idle_screen");
+        }
+    }
 }
 
 State fsm_get_current_state(void)
@@ -403,7 +569,11 @@ void fsm_set_active_product(Product prod)
 
 bool fsm_on_qr_detected(const char *id, const char *name)
 {
+    cancel_timeout_timer();
+    cancel_idle_screen_timer();
+
     memset(&active_product, 0, sizeof(active_product));
+    last_error[0] = '\0';
     safe_copy(active_product.id, id, sizeof(active_product.id));
     safe_copy(active_product.name, name, sizeof(active_product.name));
     active_product.stock = 0;
@@ -416,6 +586,9 @@ bool fsm_on_qr_detected(const char *id, const char *name)
 
 bool fsm_on_qr_invalid(const char *reason)
 {
+    cancel_timeout_timer();
+    cancel_idle_screen_timer();
+
     memset(&active_product, 0, sizeof(active_product));
     active_product_valid = false;
     safe_copy(last_error, reason != NULL ? reason : "QR invalido", sizeof(last_error));
@@ -426,6 +599,10 @@ bool fsm_on_qr_invalid(const char *reason)
 void fsm_execute_transition(EventType event)
 {
     const int table_size = sizeof(transition_table) / sizeof(transition_table[0]);
+
+    if (event != EV_TIMEOUT) {
+        cancel_timeout_timer();
+    }
 
     if (current_state == STATE_IDLE &&
         (event == EV_MQTT_PUBLISH_SUCCESS || event == EV_MQTT_PUBLISH_FAILURE)) {
@@ -459,5 +636,4 @@ void fsm_execute_transition(EventType event)
              current_state,
              event);
 }
-
 
