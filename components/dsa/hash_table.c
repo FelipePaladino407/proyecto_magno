@@ -1,47 +1,52 @@
 #include "hash_table.h"
+#include "esp_err.h"
+#include "esp_log.h"
 #include <string.h>
 
+static const char *TAG = "HASH_TABLE";
+
 /**
- * aca uso el algoritmo djb2. Creada por Daniel Bernstein. Es muy rapida 
+ * aca uso el algoritmo djb2. Creada por Daniel Bernstein. Es muy rapida
  * y genera pocas colisiones. Es muy buena, busquenla.
  *
  */
 static unsigned long hash_string(const char *str) {
-  unsigned long hash = 5381;
-  int c;
+    unsigned long hash = 5381;
+    int c;
 
-  while ((c = *str++)) {
-    hash = ((hash << 5) + hash) + c; // aca multiplica por 33. 
-  }
-  return hash;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c; // aca multiplica por 33.
+    }
+    return hash;
 }
 
 static int get_index(const char *id) {
-
-  return hash_string(id) % HASH_TABLE_SIZE;
+    return hash_string(id) % HASH_TABLE_SIZE;
 }
 
 // para inicializar la tabla, setea todas las celdas en ENTRY_EMPTY (vacias nunca usadas).
-void hash_table_init(HashTable *table) {
-  if (table == NULL) {
-    return;
-  }
+esp_err_t hash_table_init(HashTable *table) {
+    if (table == NULL) {
+        ESP_LOGE(TAG, "hash_table_init: table pointer is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
 
-  table->count = 0;
+    table->count = 0;
 
-  for (int pp = 0; pp < HASH_TABLE_SIZE; pp++) {
-    table->entries[pp].status = ENTRY_EMPTY;
-  }
+    for (int pp = 0; pp < HASH_TABLE_SIZE; pp++) {
+        table->entries[pp].status = ENTRY_EMPTY;
+    }
+
+    return ESP_OK;
 }
 
 // trivial: sirve para ver si la tabla esta llena. Esta bueno para verificar antes de insertar algo.
 bool hash_table_is_full(HashTable *table) {
-  if (table == NULL) {
-    return false;
-  }
+    if (table == NULL) {
+        return false;
+    }
 
-  return table->count >= HASH_TABLE_SIZE;
-
+    return table->count >= HASH_TABLE_SIZE;
 }
 
 // busca un producto por id. probablemente sea la funcion mas importante para el qr.
@@ -61,8 +66,7 @@ Product *hash_table_find(HashTable *table, const char *id) {
             return NULL;
         }
 
-        if (entry->status == ENTRY_OCCUPIED &&
-            strcmp(entry->product.id, id) == 0) {
+        if (entry->status == ENTRY_OCCUPIED && strcmp(entry->product.id, id) == 0) {
             return &entry->product;
         }
     }
@@ -84,8 +88,7 @@ bool hash_table_insert(HashTable *table, Product product) {
 
         HashEntry *entry = &table->entries[probe_index];
 
-        if (entry->status == ENTRY_OCCUPIED &&
-            strcmp(entry->product.id, product.id) == 0) {
+        if (entry->status == ENTRY_OCCUPIED && strcmp(entry->product.id, product.id) == 0) {
             entry->product = product;
             return true;
         }
@@ -95,9 +98,7 @@ bool hash_table_insert(HashTable *table, Product product) {
         }
 
         if (entry->status == ENTRY_EMPTY) {
-            int target_index = first_deleted_index != -1
-                                   ? first_deleted_index
-                                   : probe_index;
+            int target_index = first_deleted_index != -1 ? first_deleted_index : probe_index;
 
             table->entries[target_index].product = product;
             table->entries[target_index].status = ENTRY_OCCUPIED;
@@ -134,8 +135,7 @@ bool hash_table_remove(HashTable *table, const char *id) {
             return false;
         }
 
-        if (entry->status == ENTRY_OCCUPIED &&
-            strcmp(entry->product.id, id) == 0) {
+        if (entry->status == ENTRY_OCCUPIED && strcmp(entry->product.id, id) == 0) {
             entry->status = ENTRY_DELETED;
             table->count--;
             return true;

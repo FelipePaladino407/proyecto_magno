@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include "esp_err.h"
 
-// Red creada por el ESP32 para abrir la pagina de configuracion. 
+// Red creada por el ESP32 para abrir la pagina de configuracion.
 #define WIFI_MANAGER_AP_SSID       "ESP32"
 #define WIFI_MANAGER_AP_PASS       "config123"
 #define WIFI_MANAGER_AP_CHANNEL    6
@@ -40,6 +40,5 @@ const char *wifi_manager_get_ap_ssid(void);
 // Compatibilidad con el codigo anterior. Ambas inicializan el modo AP+STA.
 void wifi_init_softap(void);
 void wifi_init_sta(void);
-
 
 #endif

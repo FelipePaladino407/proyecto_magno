@@ -3,9 +3,18 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
+#include "esp_err.h"
 #include "shared_types.h"
 
-void product_db_init(void);
+esp_err_t product_db_init(void);
+
+/* Carga un catalogo con stock inicial 0. Si el producto ya existe, conserva su stock. */
+uint32_t product_db_load_catalog(const ProductoCatalogo *catalog,
+                                 size_t catalog_size);
+
+/* Carga el catalogo compartido definido en shared_types.c. */
+uint32_t product_db_load_default_catalog(void);
 
 /* Inserta o actualiza un producto del catalogo local. */
 bool product_db_upsert_product(const char *id, const char *name, uint32_t stock, Product *out_product);

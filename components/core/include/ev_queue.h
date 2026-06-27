@@ -32,7 +32,7 @@ typedef enum {
 } EventType;
 
 /* Must be called before any producer or consumer starts. */
-void ev_queue_init(void);
+esp_err_t ev_queue_init(void);
 
 /* Post from a normal task context.
  * Returns false if the queue is full or not initialised. */

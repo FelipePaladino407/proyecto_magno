@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <time.h>
-
+#include "esp_err.h"
 #include "shared_types.h"
 
 #define LOGGER_SIZE 20
@@ -27,7 +27,7 @@ typedef struct {
     char nvs_key_count[16];
 } Logger;
 
-void logger_init(Logger *logger, const char *nombre); // Inicializa el logger y carga desde NVS lo que habia guardado
+esp_err_t logger_init(Logger *logger, const char *nombre); // Inicializa el logger y carga desde NVS lo que habia guardado
 
 bool logger_push(Logger *logger, Product product, time_t timestamp, const char *state); // Guarda un producto con su timestamp y estado en el buffer circular y en NVS. Devuelve true si se guardo bien o false si hubo un error
 

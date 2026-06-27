@@ -1,5 +1,5 @@
 #include "fsm.h"
-#include "app_logic.h"
+#include "core.h"
 #include "esp_log.h"
 #include "ev_queue.h"
 #include "freertos/FreeRTOS.h"
@@ -53,12 +53,11 @@ static const Transition transition_table_b[] = {
 
 void fsm_init(void) {
     current_state = STATE_IDLE;
-    app_logic_reset_context();
+    sys_reset_context();
+    xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
 }
 
 void fsm_task(void *pvParameters) {
-    (void)pvParameters;
-
     ESP_LOGI(TAG, "FSM task started");
 
     EventType event;

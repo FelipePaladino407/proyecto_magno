@@ -2,10 +2,10 @@
 #define HASH_TABLE_H
 
 #include <stdbool.h>
-#include <stdint.h>
 #include "shared_types.h"
+#include "esp_err.h"
 
-#define HASH_TABLE_SIZE 32
+#define HASH_TABLE_SIZE 64
 
 typedef enum {
     ENTRY_EMPTY,
@@ -23,7 +23,7 @@ typedef struct {
     int count;
 } HashTable;
 
-void hash_table_init(HashTable *table);
+esp_err_t hash_table_init(HashTable *table);
 
 bool hash_table_insert(HashTable *table, Product product);
 
@@ -31,7 +31,7 @@ Product *hash_table_find(HashTable *table, const char *id);
 
 bool hash_table_remove(HashTable *table, const char *id);
 
-bool hash_table_update_stock(HashTable *table, const char *id, int new_stock); 
+bool hash_table_update_stock(HashTable *table, const char *id, int new_stock);
 
 bool hash_table_is_full(HashTable *table);
 

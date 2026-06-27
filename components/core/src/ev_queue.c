@@ -10,14 +10,21 @@ static QueueHandle_t ev_queue;
 
 const char *TAG = "EV_QUEUE";
 
-void ev_queue_init(void) {
+esp_err_t ev_queue_init(void) {
     if (ev_queue != NULL) {
         ESP_LOGW(TAG, "ev_queue_init called more than once — ignored");
-        return;
+        return ESP_ERR_INVALID_STATE;
     }
 
     ev_queue = xQueueCreate(EV_QUEUE_LENGTH, sizeof(EventType));
+
+    if (ev_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create event queue");
+        return ESP_ERR_NO_MEM;
+    }
+
     ESP_LOGI(TAG, "Event queue created");
+    return ESP_OK;
 }
 
 bool ev_queue_post(EventType event) {

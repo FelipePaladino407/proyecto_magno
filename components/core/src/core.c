@@ -1,15 +1,22 @@
-#include "app_logic.h"
+#include "core.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "ev_queue.h"
+#include "fsm.h"
 #include "product_db.h"
 #include <string.h>
 
-static const char *TAG = "APP_LOGIC";
+static const char *TAG = "CORE";
 
-static AppContext s_context;
+static SystemContext s_context;
+
+esp_err_t core_init(void) {
+    ev_queue_init();
+    fsm_init();
+}
 
 // context para la logica
-AppContext *app_logic_get_context(void) {
+SystemContext *app_logic_get_context(void) {
     return &s_context;
 }
 
@@ -29,7 +36,7 @@ const char *app_logic_get_last_error(void) {
     return s_context.last_error;
 }
 
-void app_logic_set_pending_scan(const char *id, const char *name) {
+void sys_set_pending_scan(const char *id, const char *name) {
     memset(&s_context.current_product, 0, sizeof(Product));
     if (id != NULL) {
         strncpy(s_context.current_product.id, id, sizeof(s_context.current_product.id) - 1);
@@ -43,11 +50,11 @@ void app_logic_set_pending_scan(const char *id, const char *name) {
     s_context.current_product_valid = (id != NULL && id[0] != '\0');
 }
 
-void app_logic_set_selected_quantity(uint32_t quantity) {
+void sys_set_selected_quantity(uint32_t quantity) {
     s_context.current_product_quantity = quantity;
 }
 
-void app_logic_set_active_product(const Product *product) {
+void sys_set_active_product(const Product *product) {
     if (product != NULL) {
         s_context.current_product = *product;
         s_context.current_product_valid = true;
@@ -56,7 +63,7 @@ void app_logic_set_active_product(const Product *product) {
     }
 }
 
-void app_logic_set_last_error(const char *msg) {
+void sys_set_last_error(const char *msg) {
     if (msg != NULL) {
         strncpy(s_context.last_error, msg, sizeof(s_context.last_error) - 1);
         s_context.last_error[sizeof(s_context.last_error) - 1] = '\0';
@@ -65,7 +72,7 @@ void app_logic_set_last_error(const char *msg) {
     }
 }
 
-void app_logic_reset_context(void) {
+void sys_reset_context(void) {
     s_context.current_product_valid = false;
     s_context.current_product_quantity = 1;
     s_context.last_error[0] = '\0';
@@ -75,7 +82,7 @@ static void action_setup(void) {
 }
 
 static void action_reset_to_idle(void) {
-    app_logic_reset_context();
+    sys_reset_context();
 }
 
 static void action_throw_error(void) {
@@ -90,7 +97,7 @@ static void action_db_lookup(void) {
     Product pending;
 
     if (!app_logic_get_active_product(&pending) || pending.id[0] == '\0') {
-        app_logic_set_last_error("No hay producto activo");
+        sys_set_last_error("No hay producto activo");
         ev_queue_post(EV_PRODUCT_NOT_FOUND);
         return;
     }
@@ -101,13 +108,13 @@ static void action_db_lookup(void) {
     if (!product_db_find_by_id(pending.id, &stored)) {
         char err[64];
         snprintf(err, sizeof(err), "Producto no registrado: %s", pending.id);
-        app_logic_set_last_error(err);
+        sys_set_last_error(err);
         ESP_LOGE(TAG, "Producto no registrado -> ID=%s", pending.id);
         ev_queue_post(EV_PRODUCT_NOT_FOUND);
         return;
     }
 
-    app_logic_set_active_product(&stored);
+    sys_set_active_product(&stored);
 
     ESP_LOGI(TAG, "Producto encontrado -> ID=%s | Nombre=%s | Stock=%lu", stored.id, stored.name,
              (unsigned long)stored.stock);
@@ -119,7 +126,7 @@ static void action_prompt_add_product(void) {
 }
 
 static void action_enter_quantity_selection(void) {
-    app_logic_set_selected_quantity(1);
+    sys_set_selected_quantity(1);
 
     char msg[32];
     snprintf(msg, sizeof(msg), "Cantidad: 1");
@@ -131,7 +138,7 @@ static void action_quantity_up(void) {
     uint32_t qty = app_logic_get_selected_quantity();
     if (qty < 99) {
         qty++;
-        app_logic_set_selected_quantity(qty);
+        sys_set_selected_quantity(qty);
     }
     char msg[32];
     snprintf(msg, sizeof(msg), "Cantidad: %lu", (unsigned long)qty);
@@ -143,7 +150,7 @@ static void action_quantity_down(void) {
     uint32_t qty = app_logic_get_selected_quantity();
     if (qty > 1) {
         qty--;
-        app_logic_set_selected_quantity(qty);
+        sys_set_selected_quantity(qty);
     }
     char msg[32];
     snprintf(msg, sizeof(msg), "Cantidad: %lu", (unsigned long)qty);
@@ -155,7 +162,7 @@ static void action_stock_update(void) {
     Product current;
 
     if (!app_logic_get_active_product(&current)) {
-        app_logic_set_last_error("No hay producto activo para actualizar");
+        sys_set_last_error("No hay producto activo para actualizar");
         ev_queue_post(EV_STOCK_UPDATE_FAILURE);
         return;
     }
@@ -167,14 +174,14 @@ static void action_stock_update(void) {
     if (!product_db_add_stock(current.id, qty, &updated)) {
         char err[64];
         snprintf(err, sizeof(err), "No se pudo actualizar stock: %s", current.id);
-        app_logic_set_last_error(err);
+        sys_set_last_error(err);
 
         ESP_LOGE(TAG, "%s", err);
         ev_queue_post(EV_STOCK_UPDATE_FAILURE);
         return;
     }
 
-    app_logic_set_active_product(&updated);
+    sys_set_active_product(&updated);
 
     ESP_LOGI(TAG, "Stock actualizado -> ID=%s | Agregado=%lu | Stock=%lu", updated.id, (unsigned long)qty,
              (unsigned long)updated.stock);

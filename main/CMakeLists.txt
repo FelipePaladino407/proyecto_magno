@@ -9,6 +9,8 @@ idf_component_register(SRCS "proyecto_final.c"
                             ntp_handler
                             mqtt_handler
                             input_handler
+                            qr_handler
                             tests
                             product_db
+                            pending_queue
                         INCLUDE_DIRS ".")
