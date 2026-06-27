@@ -7,7 +7,6 @@
 #include "freertos/projdefs.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "fsm.h"
 #include "http_handler.h"
 #include "input_handler.h"
 #include "logger.h"
@@ -15,6 +14,7 @@
 #include "ntp_handler.h"
 #include "nvs.h"
 #include "product_db.h"
+#include "qr_handler.h"
 #include "rgb_led.h"
 #include "wifi_manager.h"
 #include <stdbool.h>
@@ -39,10 +39,10 @@ static void load_demo_catalog(void) {
 }
 
 void setup(void) {
-    ESP_ERROR_CHECK(nvs_storage_init());   // NVS
-    ESP_ERROR_CHECK(wifi_manager_init());  // WIFI
-    ESP_ERROR_CHECK(http_handler_start()); // HTTP
-    ESP_ERROR_CHECK(core_init());          // CORE
+    ESP_ERROR_CHECK(nvs_storage_init());  // NVS
+    ESP_ERROR_CHECK(wifi_manager_init()); // WIFI
+    ESP_ERROR_CHECK(http_handler_init()); // HTTP
+    ESP_ERROR_CHECK(core_init());         // CORE
 
     if (product_db_init() != ESP_OK) {
         ev_queue_post(EV_SETUP_FAILURE);
@@ -56,16 +56,26 @@ void setup(void) {
         ev_queue_post(EV_SETUP_FAILURE);
     } // RGB LEDs
 
-    load_demo_catalog();
-}
+    if (qr_scanner_handler_init() != ESP_OK) {
+    } // QR Scanner
 
-void app_main(void) {
+    if (ntp_clock_init() != ESP_OK) {
+        ev_queue_post(EV_SETUP_FAILURE);
+    } // NTP Clock
+
+    load_demo_catalog();
+
     logger_init(&logger_local, "local");
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
-    ntp_init();
-    mqtt_handler_init();
+    if (mqtt_handler_init() != ESP_OK) {
+        ev_queue_post(EV_SETUP_FAILURE);
+    } // MQTT
+}
+
+void app_main(void) {
+    setup();
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));

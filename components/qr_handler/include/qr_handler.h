@@ -2,6 +2,7 @@
 #define QR_HANDLER_H
 
 #include "esp_camera.h"
+#include "esp_err.h"
 
 #define CAM_PIN_XCLK     1
 #define CAM_PIN_SIOD     8
@@ -49,6 +50,6 @@ static const camera_config_t QR_CAMERA_CONFIG = {
     .sccb_i2c_port  = 1,
 };
 
-void qr_handler_init(void);
+esp_err_t qr_scanner_handler_init(void);
 
 #endif

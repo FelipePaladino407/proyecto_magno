@@ -1,35 +1,41 @@
+#include "ntp_handler.h"
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
-#include "ntp_handler.h"
-
 static const char *TAG = "NTP_HANDLER";
 
-void ntp_init(void) {
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(
-        "pool.ntp.org"); // Se crea la configuracion SNTP usando el servidor pool.ntp.org para sacar la hora de internet
+esp_err_t ntp_clock_init(void) {
+    esp_err_t ret;
 
-    esp_netif_sntp_init(&config); // Se inicializa SNTP con la configuracion anterior
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
 
-    esp_err_t ret =
-        esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000)); // Se espera hasta 10 segundos a que la hora se sincronice
-
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Hora sincronizada con NTP");
-    } else {
-        ESP_LOGW(TAG, "No se pudo sincronizar la hora con NTP");
+    ret = esp_netif_sntp_init(&config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize SNTP. Error: 0x%x", ret);
+        return ret;
     }
 
-    // Uruguay es UTC-3.
-    setenv("TZ", "<-03>3", 1); // TZ: nombre de la variable donde se guarda la zona horaria. "<-03>3": indica UTC-3. 1:
-                               // permite sobrescribir TZ si ya tenia otro valor.
-    tzset();                   // Sacado de
-             // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/system_time.html
+    ESP_LOGI(TAG, "SNTP initialized, waiting for time synchronization...");
+
+    ret = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000));
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Time synchronized with NTP successfully");
+    } else {
+        ESP_LOGW(TAG, "Could not synchronize time with NTP (0x%x). Continuing with default time.", ret);
+        // Continue execution - this is not fatal, time will be set but may be incorrect
+    }
+
+    // Uruguay is UTC-3
+    setenv("TZ", "<-03>3", 1);
+    tzset();
+
+    ESP_LOGI(TAG, "Timezone set to UTC-3 (Uruguay)");
+
+    return ESP_OK; // Always returns ESP_OK since NTP sync failure is not fatal
 }
 
 bool get_timestamp(time_t *timestamp) {

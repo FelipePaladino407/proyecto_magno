@@ -1,13 +1,12 @@
+#include "logger.h"
+#include "esp_err.h"
+#include "esp_log.h"
+#include "nvs.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-
-#include "esp_err.h"
-#include "esp_log.h"
-#include "logger.h"
-#include "nvs.h"
 
 static const char *TAG = "LOGGER";
 
@@ -25,29 +24,50 @@ static void logger_armar_claves(Logger *logger, const char *nombre) {
     snprintf(logger->nvs_key_count, sizeof(logger->nvs_key_count), "%.9s_count", logger->nombre);
 }
 
-static void logger_save(Logger *logger) {
+static esp_err_t logger_save(Logger *logger) {
     esp_err_t err;
+    esp_err_t final_err = ESP_OK;
 
-    err = nvs_storage_set_blob(logger->nvs_key_buffer, logger->buffer,
-                               sizeof(logger->buffer)); // Guarda el buffer entero en NVS
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No se pudo guardar el buffer en NVS");
+    if (logger == NULL) {
+        ESP_LOGE(TAG, "logger_save: logger is NULL");
+        return ESP_ERR_INVALID_ARG;
     }
 
-    err = nvs_storage_set_int(logger->nvs_key_head, (int32_t)logger->head); // Guarda head en NVS
+    err = nvs_storage_set_blob(logger->nvs_key_buffer, logger->buffer, sizeof(logger->buffer));
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No se pudo guardar head en NVS");
+        ESP_LOGW(TAG, "No se pudo guardar el buffer en NVS (0x%x)", err);
+        final_err = err;
     }
 
-    err = nvs_storage_set_int(logger->nvs_key_tail, (int32_t)logger->tail); // Guarda tail en NVS
+    err = nvs_storage_set_int(logger->nvs_key_head, (int32_t)logger->head);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No se pudo guardar tail en NVS");
+        ESP_LOGW(TAG, "No se pudo guardar head en NVS (0x%x)", err);
+        if (final_err == ESP_OK) {
+            final_err = err;
+        }
     }
 
-    err = nvs_storage_set_int(logger->nvs_key_count, (int32_t)logger->count); // Guarda count en NVS
+    err = nvs_storage_set_int(logger->nvs_key_tail, (int32_t)logger->tail);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No se pudo guardar count en NVS");
+        ESP_LOGW(TAG, "No se pudo guardar tail en NVS (0x%x)", err);
+        if (final_err == ESP_OK) {
+            final_err = err;
+        }
     }
+
+    err = nvs_storage_set_int(logger->nvs_key_count, (int32_t)logger->count);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "No se pudo guardar count en NVS (0x%x)", err);
+        if (final_err == ESP_OK) {
+            final_err = err;
+        }
+    }
+
+    if (final_err != ESP_OK) {
+        ESP_LOGW(TAG, "Algunos datos no se guardaron correctamente en NVS");
+    }
+
+    return final_err;
 }
 
 esp_err_t logger_init(Logger *logger, const char *nombre) {
@@ -56,12 +76,6 @@ esp_err_t logger_init(Logger *logger, const char *nombre) {
     if (logger == NULL || nombre == NULL) {
         ESP_LOGE(TAG, "logger_init: invalid arguments (logger=%p, nombre=%s)", logger, nombre);
         return ESP_ERR_INVALID_ARG;
-    }
-
-    ret = nvs_storage_init(); // Inicializa el almacenamiento NVS
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "logger_init: nvs_storage_init failed (0x%x)", ret);
-        return ret;
     }
 
     memset(logger, 0, sizeof(Logger));
@@ -78,7 +92,6 @@ esp_err_t logger_init(Logger *logger, const char *nombre) {
     if (ret != ESP_OK || buffer_size != sizeof(logger->buffer)) {
         memset(logger->buffer, 0, sizeof(logger->buffer));
         ESP_LOGW(TAG, "No habia buffer valido en NVS para logger %s, arranca vacio", logger->nombre);
-        // Continue execution - this is not a fatal error
     }
 
     int32_t valor = 0;
@@ -113,8 +126,8 @@ esp_err_t logger_init(Logger *logger, const char *nombre) {
         }
     }
 
-    ESP_LOGI(TAG, "Logger %s inicializado desde NVS: head=%d tail=%d count=%d", logger->nombre, logger->head,
-             logger->tail, logger->count);
+    ESP_LOGI(TAG, "Logger %s inicializado: head=%d tail=%d count=%d", logger->nombre, logger->head, logger->tail,
+             logger->count);
 
     return ESP_OK;
 }

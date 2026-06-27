@@ -7,7 +7,6 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
-#include "fsm.h"
 #include "nvs.h"
 #include "rgb_led.h"
 #include <stdio.h>
@@ -124,10 +123,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         set_status_connected(ip_string);
         rgb_led_set_color(0, 255, 0); // Verde
         ESP_LOGI(TAG, "STA conectada. IP obtenida: %s", ip_string);
-
-        /* Notificar a la FSM que el Wi-Fi está listo */
-        EventType ev_wifi = EV_WIFI_CONNECT_SUCCESS;
-        xQueueSend(fsm_event_queue, &ev_wifi, 0);
     }
 }
 

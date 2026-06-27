@@ -43,11 +43,23 @@ static void qr_scan_task(void *pvParameters) {
     }
 }
 
-void qr_handler_init(void) {
-    if (esp_camera_init(&QR_CAMERA_CONFIG) != ESP_OK) {
-        ESP_LOGE(TAG, "No se pudo inicializar la cámara.");
-        return;
+esp_err_t qr_scanner_handler_init(void) {
+    esp_err_t ret;
+
+    ret = esp_camera_init(&QR_CAMERA_CONFIG);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo inicializar la cámara. Error: 0x%x", ret);
+        return ret;
     }
+
     ESP_LOGI(TAG, "Cámara inicializada.");
-    xTaskCreate(qr_scan_task, "qr_scan", 32768, NULL, 4, NULL);
+
+    BaseType_t task_created = xTaskCreate(qr_scan_task, "qr_scan", 32768, NULL, 4, NULL);
+    if (task_created != pdPASS) {
+        ESP_LOGE(TAG, "No se pudo crear la tarea qr_scan");
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "QR handler initialized successfully");
+    return ESP_OK;
 }
