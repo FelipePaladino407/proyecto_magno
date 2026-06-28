@@ -9,6 +9,8 @@
 #include "freertos/task.h"
 #include "http_handler.h"
 #include "input_handler.h"
+#include "lcd_manager.h"
+#include "lcd_port.h"
 #include "logger.h"
 #include "mqtt_handler.h"
 #include "ntp_handler.h"
@@ -45,6 +47,7 @@ DeviceMode sys_get_mode(void) {
 
 void sys_set_mode(DeviceMode mode) {
     s_device_mode = mode;
+    ESP_LOGI(TAG, "Device mode set to %d", mode);
 }
 
 // context para la logica
@@ -118,6 +121,7 @@ void action_setup(void) {
     if (s_device_mode == DEVICE_MODE_LCD) {
         err |= product_db_init();
         err |= button_int_config();
+        lcd_port_init();
 
         product_db_load_default_catalog();
 
@@ -125,14 +129,16 @@ void action_setup(void) {
         logger_init(&logger_recibido, "recibido");
         mqtt_handler_set_loggers(&logger_local, &logger_recibido);
     } else {
-        err |= qr_scanner_handler_init();
+        // err |= qr_scanner_handler_init();
     }
 
     err |= mqtt_handler_init();
 
     if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Setup success");
         ev_queue_post(EV_SETUP_SUCCESS);
     } else {
+        ESP_LOGE(TAG, "Setup failure");
         ev_queue_post(EV_SETUP_FAILURE);
     }
 }

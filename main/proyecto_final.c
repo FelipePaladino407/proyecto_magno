@@ -24,17 +24,21 @@ void app_main(void) {
     esp_err_t err = nvs_storage_get_int("mode", &mode);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        // No hay modo guardado, usar LCD por defecto
-        ESP_LOGI(TAG, "No se encontró modo guardado, usando LCD por defecto");
+        // No hay modo guardado, usar CAM por defecto
+        ESP_LOGI(TAG, "No se encontró modo guardado, usando CAM por defecto");
     }
 
     if (mode == 0) {
         sys_set_mode(DEVICE_MODE_CAM);
     } else if (mode == 1) {
         sys_set_mode(DEVICE_MODE_LCD);
+    } else {
+        sys_set_mode(0);
     }
 
     fsm_init();
+
+    ev_queue_post(EV_SETUP); // sin esto no arranca
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));

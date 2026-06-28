@@ -7,5 +7,6 @@ idf_component_register(
         driver
         freertos
         lvgl
-        stock_manager
+        esp_timer
+        lcd_manager
 )

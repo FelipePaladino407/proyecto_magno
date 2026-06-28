@@ -60,6 +60,7 @@ static const Transition transition_table_b[] = {
 void fsm_init() {
     current_state = STATE_SETUP;
     s_device_mode = sys_get_mode();
+    ESP_LOGI(TAG, "FSM mode %d", s_device_mode);
 
     sys_reset_context();
 
@@ -69,7 +70,8 @@ void fsm_init() {
         ESP_LOGI(TAG, "FSM initialized in CAM mode (A)");
     }
 
-    xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
+    xTaskCreate(&fsm_task, "FSM_TASK", 2048, NULL, 1, NULL);
+    ESP_LOGI(TAG, "FSM task created");
 }
 
 static void fsm_execute_transition(EventType event, const Transition transition_table[], size_t table_length) {
