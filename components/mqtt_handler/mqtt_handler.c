@@ -1,27 +1,50 @@
 #include "mqtt_handler.h"
 
-#include "cJSON.h"
-#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+
 #include "mqtt_client.h"
+#include "esp_log.h"
 
 #include "fsm.h"
 #include "logger.h"
 #include "ntp_handler.h"
 #include "pending_queue.h"
-#include "telemetry_formatter.h"
+#include "product_db.h"
+#include "shared_types.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 
-static const char *TAG = "MQTT_APP";
+#include "cJSON.h"
 
+static const char *TAG = "MQTT_APP";
 extern QueueHandle_t fsm_event_queue;
 
+static esp_mqtt_client_handle_t cliente_hivemq = NULL;
+
+static Logger *logger_local_mqtt    = NULL;
+static Logger *logger_recibido_mqtt = NULL;
+
+///////////////////////////////
+//Parametros de conexion MQTT//
+///////////////////////////////
+
+/*
+ * CAMBIO RESPECTO AL ARCHIVO ORIGINAL DEL EQUIPO MQTT:
+ * antes DEVICE_ID y DEVICE_IS_LCD quedaban hardcodeados a mano dentro del .c.
+ * Ahora se dejan configurables desde CMake/menu de compilacion.
+ * Si no se define nada, este proyecto compila como LCD para sostener la demo actual.
+ *
+ * Para compilar CAM:
+ *   target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_IS_LCD=0)
+ *
+ * Para compilar LCD:
+ *   target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_IS_LCD=1)
+ */
 #ifndef DEVICE_IS_LCD
 #define DEVICE_IS_LCD 1
 #endif
@@ -32,15 +55,10 @@ static const char *DEVICE_ID = "LCD_01";
 static const char *DEVICE_ID = "CAM_01";
 #endif
 
-/* Broker unico para comunicacion CAM->LCD y telemetria leida por ThingsBoard Integration. */
+// HiveMQ publico — broker unico para todo
 static const char *HIVEMQ_URI         = "mqtt://broker.hivemq.com:1883";
-static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";
-static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry";
-
-static esp_mqtt_client_handle_t cliente_hivemq = NULL;
-
-static Logger *logger_local_mqtt    = NULL;
-static Logger *logger_recibido_mqtt = NULL;
+static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";      // CAM -> LCD + ThingsBoard Integration
+static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry"; // LCD -> ThingsBoard Integration
 
 static void safe_copy(char *dest, const char *src, size_t dest_size)
 {
@@ -57,6 +75,11 @@ static void safe_copy(char *dest, const char *src, size_t dest_size)
     dest[dest_size - 1] = '\0';
 }
 
+/*
+ * CAMBIO AGREGADO:
+ * evita repetir xQueueSend y, sobre todo, evita crashear si la cola FSM aun no existe.
+ * Se mantiene porque la FSM sigue usando EV_MQTT_CONNECT_SUCCESS para hacer flush_pending.
+ */
 static void post_fsm_event(EventType ev)
 {
     if (fsm_event_queue == NULL) {
@@ -69,6 +92,11 @@ static void post_fsm_event(EventType ev)
     }
 }
 
+/*
+ * CAMBIO AGREGADO:
+ * pending_queue no acepta timestamp 0. Si NTP todavia no esta listo,
+ * se usa time(NULL) y, como ultimo fallback, 1.
+ */
 static time_t timestamp_or_fallback(void)
 {
     time_t timestamp = 0;
@@ -77,7 +105,6 @@ static time_t timestamp_or_fallback(void)
         timestamp = time(NULL);
     }
 
-    /* La cola pendiente no acepta timestamp 0. Si aun no hay NTP, dejamos un marcador minimo. */
     if (timestamp == 0) {
         timestamp = 1;
     }
@@ -85,7 +112,12 @@ static time_t timestamp_or_fallback(void)
     return timestamp;
 }
 
-static const char *topic_for_outgoing_state(void)
+/*
+ * CAMBIO AGREGADO:
+ * La CAM publica scans hacia TOPIC_COMUNICACION.
+ * La LCD publica eventos finales/fake demo hacia TOPIC_TELEMETRY_HV para el dashboard.
+ */
+static const char *topic_salida(void)
 {
 #if DEVICE_IS_LCD
     return TOPIC_TELEMETRY_HV;
@@ -94,33 +126,58 @@ static const char *topic_for_outgoing_state(void)
 #endif
 }
 
-static bool build_payload_for_topic(char *payload,
+/*
+ * Formato plano original del equipo MQTT.
+ * Se conserva para no romper la Integration/dashboard que esperaba campos:
+ * device_id, id, producto, stock, timestamp y estado.
+ */
+static bool construir_payload_plano(char *payload,
                                     size_t payload_size,
-                                    const char *topic,
-                                    Product product,
-                                    const char *state,
-                                    time_t timestamp)
+                                    const char *device_id,
+                                    Product producto,
+                                    time_t timestamp,
+                                    const char *estado)
 {
-    if (topic == NULL) {
+    if (payload == NULL || payload_size == 0 || device_id == NULL || estado == NULL) {
         return false;
     }
 
-    if (strcmp(topic, TOPIC_TELEMETRY_HV) == 0) {
-        return telemetry_build_telemetry_payload(product, state, timestamp, payload, payload_size);
-    }
+    int written = snprintf(payload,
+                           payload_size,
+                           "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\"," 
+                           "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
+                           device_id,
+                           producto.id,
+                           producto.name,
+                           (unsigned long)producto.stock,
+                           (long long)timestamp,
+                           estado);
 
-    return telemetry_build_scan_payload(DEVICE_ID, product, state, timestamp, payload, payload_size);
+    return written > 0 && (size_t)written < payload_size;
 }
 
-static bool publish_with_timestamp(Product product,
-                                   const char *state,
-                                   const char *topic,
-                                   time_t timestamp,
-                                   bool save_in_local_logger)
+/*
+ * CAMBIO AGREGADO:
+ * publica un evento ya timestamped. Lo usa la publicacion normal y tambien flush_pending.
+ * Mantiene el JSON plano de ellos; no usa telemetry_formatter.
+ */
+static bool publicar_evento_con_timestamp(Product producto,
+                                          const char *estado,
+                                          const char *topic,
+                                          time_t timestamp,
+                                          bool guardar_logger_local)
 {
-    if (state == NULL || topic == NULL || topic[0] == '\0' || timestamp == 0) {
-        ESP_LOGW(TAG, "No se puede publicar: evento invalido");
+    if (estado == NULL || topic == NULL || topic[0] == '\0' || timestamp == 0) {
+        ESP_LOGW(TAG, "Evento MQTT invalido, no se publica");
         return false;
+    }
+
+    if (guardar_logger_local) {
+        if (logger_local_mqtt != NULL) {
+            logger_push(logger_local_mqtt, producto, timestamp, estado);
+        } else {
+            ESP_LOGW(TAG, "No hay logger local configurado");
+        }
     }
 
     if (cliente_hivemq == NULL) {
@@ -128,8 +185,8 @@ static bool publish_with_timestamp(Product product,
         return false;
     }
 
-    char payload[768];
-    if (!build_payload_for_topic(payload, sizeof(payload), topic, product, state, timestamp)) {
+    char payload[256];
+    if (!construir_payload_plano(payload, sizeof(payload), DEVICE_ID, producto, timestamp, estado)) {
         ESP_LOGW(TAG, "No se pudo construir payload MQTT");
         return false;
     }
@@ -140,153 +197,64 @@ static bool publish_with_timestamp(Product product,
         return false;
     }
 
-    if (save_in_local_logger) {
-        if (logger_local_mqtt != NULL) {
-            logger_push(logger_local_mqtt, product, timestamp, state);
-        } else {
-            ESP_LOGW(TAG, "No hay logger local configurado");
-        }
-    }
-
     ESP_LOGI(TAG, "Publicado en %s: %s", topic, payload);
     return true;
 }
 
-static bool publish_now(Product product, const char *state, const char *topic)
+/*
+ * CAMBIO AGREGADO:
+ * funcion comun para guardar eventos offline.
+ */
+static bool guardar_pendiente(Product producto, const char *estado, const char *topic, time_t timestamp)
 {
-    time_t timestamp = timestamp_or_fallback();
-    return publish_with_timestamp(product, state, topic, timestamp, true);
-}
-
-static bool store_pending(Product product, const char *state, const char *topic)
-{
-    time_t timestamp = timestamp_or_fallback();
-    return pending_queue_push(product, timestamp, state, topic);
-}
-
-static bool parse_scan_payload(const char *message,
-                               Product *out_product,
-                               time_t *out_timestamp,
-                               char *out_state,
-                               size_t state_size)
-{
-    if (message == NULL || out_product == NULL || out_timestamp == NULL ||
-        out_state == NULL || state_size == 0) {
-        return false;
+    if (timestamp == 0) {
+        timestamp = timestamp_or_fallback();
     }
 
-    memset(out_product, 0, sizeof(*out_product));
-    *out_timestamp = 0;
-    out_state[0] = '\0';
-
-    cJSON *json = cJSON_Parse(message);
-    if (json == NULL) {
-        ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
-        return false;
+    bool ok = pending_queue_push(producto, timestamp, estado, topic);
+    if (!ok) {
+        ESP_LOGE(TAG, "No se pudo guardar evento pendiente en NVS");
     }
 
-    cJSON *device_id      = cJSON_GetObjectItem(json, "device_id");
-    cJSON *id             = cJSON_GetObjectItem(json, "id");
-    cJSON *product_name   = cJSON_GetObjectItem(json, "producto");
-    cJSON *stock          = cJSON_GetObjectItem(json, "stock");
-    cJSON *timestamp_json = cJSON_GetObjectItem(json, "timestamp");
-    cJSON *state_json     = cJSON_GetObjectItem(json, "estado");
-
-    if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {
-        ESP_LOGI(TAG, "Mensaje propio recibido, ignorado");
-        cJSON_Delete(json);
-        return true;
-    }
-
-    if (!(cJSON_IsString(id) && cJSON_IsString(product_name) && cJSON_IsNumber(stock) &&
-          cJSON_IsNumber(timestamp_json) && cJSON_IsString(state_json))) {
-        ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
-        cJSON_Delete(json);
-        return false;
-    }
-
-    safe_copy(out_product->id, id->valuestring, sizeof(out_product->id));
-    safe_copy(out_product->name, product_name->valuestring, sizeof(out_product->name));
-    out_product->stock = (uint32_t)stock->valuedouble;
-    *out_timestamp = (time_t)timestamp_json->valuedouble;
-    safe_copy(out_state, state_json->valuestring, state_size);
-
-    cJSON_Delete(json);
-    return true;
-}
-
-static bool procesar_json_recibido(const char *message)
-{
-    Product received_product;
-    time_t timestamp = 0;
-    char state[16];
-
-    if (!parse_scan_payload(message, &received_product, &timestamp, state, sizeof(state))) {
-        return false;
-    }
-
-    if (received_product.id[0] == '\0') {
-        return true;
-    }
-
-    if (logger_recibido_mqtt != NULL) {
-        logger_push(logger_recibido_mqtt, received_product, timestamp, state);
-    } else {
-        ESP_LOGW(TAG, "No hay logger recibido configurado");
-    }
-
-    ESP_LOGI(TAG,
-             "Struct reconstruido -> ID:%s | Nombre:%s | Stock:%lu | Timestamp:%lld | Estado:%s",
-             received_product.id,
-             received_product.name,
-             (unsigned long)received_product.stock,
-             (long long)timestamp,
-             state);
-
-#if DEVICE_IS_LCD
-    /* En LCD, el scan de CAM entra a la FSM. La FSM valida catalogo, pregunta cantidad,
-       actualiza product_db y recien despues publica telemetria a ThingsBoard. */
-    if (strcmp(state, "ERROR") == 0) {
-        fsm_on_qr_invalid(received_product.name[0] != '\0' ? received_product.name : "Error recibido por MQTT");
-    } else {
-        fsm_on_qr_detected(received_product.id, received_product.name);
-    }
-#endif
-
-    return true;
+    return ok;
 }
 
 static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
 {
-    if (client == NULL) {
-        return;
-    }
+    char payload[512];
+    int i = 0;
 
-    size_t i = 0;
-    const size_t catalog_size = telemetry_catalog_size();
+    while (i < (int)CATALOGO_SIZE) {
+        char values[400] = "";
+        int len = 0;
 
-    while (i < catalog_size) {
-        char payload[768];
-        size_t next_index = i;
-        time_t timestamp = timestamp_or_fallback();
+        for (int j = 0; j < 10 && i < (int)CATALOGO_SIZE; j++, i++) {
+            Product producto_db;
+            uint32_t stock_actual = 0;
 
-        if (!telemetry_build_catalog_batch_payload(i,
-                                                   10,
-                                                   timestamp,
-                                                   payload,
-                                                   sizeof(payload),
-                                                   &next_index)) {
-            ESP_LOGW(TAG, "No se pudo construir payload de catalogo inicial");
-            break;
+            // Consultar a la hash table si el producto ya existe mediante su ID
+            if (product_db_find_by_id(catalogo_completo[i].id, &producto_db)) {
+                stock_actual = producto_db.stock; // Si existe, levantamos su stock real
+            }
+
+            len += snprintf(values + len, sizeof(values) - len,
+                            "%s\"%s\":%lu",
+                            (j == 0) ? "" : ",",
+                            catalogo_completo[i].nombre,
+                            (unsigned long)stock_actual);
         }
 
-        esp_mqtt_client_publish(client, TOPIC_TELEMETRY_HV, payload, 0, 1, 0);
-        ESP_LOGI(TAG, "Catalogo inicial publicado [%u/%u]: %s",
-                 (unsigned)next_index,
-                 (unsigned)catalog_size,
-                 payload);
+        time_t ts = timestamp_or_fallback();
 
-        i = next_index;
+        snprintf(payload, sizeof(payload),
+                 "{\"ts\":%lld,\"values\":{%s}}",
+                 (long long)ts * 1000LL,
+                 values);
+
+        esp_mqtt_client_publish(client, TOPIC_TELEMETRY_HV, payload, 0, 1, 0);
+        ESP_LOGI(TAG, "Catalogo inicial publicado [%d/%d]: %s",
+                 i, (int)CATALOGO_SIZE, payload);
+
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
@@ -297,18 +265,121 @@ void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido)
     logger_recibido_mqtt = logger_recibido;
 }
 
-static void mqtt_hivemq_event_handler(void *handler_args,
-                                      esp_event_base_t base,
-                                      int32_t event_id,
-                                      void *event_data)
+/*
+ * CAMBIO IMPORTANTE:
+ * Se conserva la idea del equipo MQTT: si la LCD recibe un scan de CAM,
+ * NO lo manda a la FSM. Lo reenvia directo a TOPIC_TELEMETRY_HV para que
+ * ThingsBoard/dashboard siga funcionando como antes.
+ *
+ * Si ese reenvio falla, ahora se guarda en pending_queue.
+ */
+static bool procesar_json_recibido(const char *mensaje)
+{
+    Product producto_recibido;
+    memset(&producto_recibido, 0, sizeof(producto_recibido));
+
+    time_t timestamp = 0;
+    char estado[16] = "";
+
+    cJSON *json = cJSON_Parse(mensaje);
+    if (json == NULL) {
+        ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
+        return false;
+    }
+
+    cJSON *device_id      = cJSON_GetObjectItem(json, "device_id");
+    cJSON *id             = cJSON_GetObjectItem(json, "id");
+    cJSON *producto       = cJSON_GetObjectItem(json, "producto");
+    cJSON *stock          = cJSON_GetObjectItem(json, "stock");
+    cJSON *timestamp_json = cJSON_GetObjectItem(json, "timestamp");
+    cJSON *estado_json    = cJSON_GetObjectItem(json, "estado");
+
+    if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {
+        ESP_LOGI(TAG, "Mensaje propio recibido, ignorado");
+        cJSON_Delete(json);
+        return true;
+    }
+
+    if (cJSON_IsString(id) && cJSON_IsString(producto) && cJSON_IsNumber(stock) &&
+        cJSON_IsNumber(timestamp_json) && cJSON_IsString(estado_json)) {
+
+        safe_copy(producto_recibido.id, id->valuestring, sizeof(producto_recibido.id));
+        safe_copy(producto_recibido.name, producto->valuestring, sizeof(producto_recibido.name));
+        producto_recibido.stock = (uint32_t)stock->valuedouble;
+        timestamp = (time_t)timestamp_json->valuedouble;
+        safe_copy(estado, estado_json->valuestring, sizeof(estado));
+
+        if (timestamp == 0) {
+            timestamp = timestamp_or_fallback();
+        }
+
+        if (logger_recibido_mqtt != NULL) {
+            logger_push(logger_recibido_mqtt, producto_recibido, timestamp, estado);
+        } else {
+            ESP_LOGW(TAG, "No hay logger recibido configurado");
+        }
+
+        ESP_LOGI(TAG, "Struct reconstruido -> ID: %s, Nombre: %s, Stock: %lu, Timestamp: %lld, Estado: %s",
+                 producto_recibido.id, producto_recibido.name,
+                 (unsigned long)producto_recibido.stock, (long long)timestamp, estado);
+
+#if DEVICE_IS_LCD
+        const char *device_id_origen = "UNKNOWN";
+        if (cJSON_IsString(device_id)) {
+            device_id_origen = device_id->valuestring;
+        }
+
+        char payload_tb[256];
+        bool payload_ok = construir_payload_plano(payload_tb,
+                                                  sizeof(payload_tb),
+                                                  device_id_origen,
+                                                  producto_recibido,
+                                                  timestamp,
+                                                  estado);
+
+        bool publicado = false;
+        if (payload_ok && cliente_hivemq != NULL) {
+            int msg_id = esp_mqtt_client_publish(cliente_hivemq, TOPIC_TELEMETRY_HV, payload_tb, 0, 1, 0);
+            publicado = msg_id >= 0;
+        }
+
+        if (publicado) {
+            ESP_LOGI(TAG, "LCD reenvio a ThingsBoard via HiveMQ: %s", payload_tb);
+        } else {
+            ESP_LOGW(TAG, "No se pudo reenviar a ThingsBoard. Guardando evento pendiente");
+
+            /*
+             * Limitacion conocida:
+             * pending_queue guarda product/state/timestamp/topic, pero no guarda device_id_origen.
+             * Al hacer flush, el payload saldra con DEVICE_ID local, normalmente LCD_01.
+             */
+            guardar_pendiente(producto_recibido, estado, TOPIC_TELEMETRY_HV, timestamp);
+        }
+#endif
+
+        cJSON_Delete(json);
+        return true;
+    }
+
+    ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
+    cJSON_Delete(json);
+    return false;
+}
+
+// ─── Event handler HiveMQ ────────────────────────────────────────────────────
+
+static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
+                                      int32_t event_id, void *event_data)
 {
     (void)handler_args;
     (void)base;
 
     esp_mqtt_event_handle_t event = event_data;
     esp_mqtt_client_handle_t client = event->client;
+    EventType ev;
 
     switch ((esp_mqtt_event_id_t)event_id) {
+
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "HiveMQ: conectado como %s", DEVICE_ID);
         cliente_hivemq = client;
@@ -320,38 +391,36 @@ static void mqtt_hivemq_event_handler(void *handler_args,
         ESP_LOGI(TAG, "LCD: suscrito a %s", TOPIC_COMUNICACION);
         publicar_catalogo_inicial(client);
 #else
-        ESP_LOGI(TAG, "CAM: publicara scans en %s", TOPIC_COMUNICACION);
+        ESP_LOGI(TAG, "CAM: publicara en %s", TOPIC_COMUNICACION);
 #endif
-
-        post_fsm_event(EV_MQTT_CONNECT_SUCCESS);
+        ev = EV_MQTT_CONNECT_SUCCESS;
+        post_fsm_event(ev); // la FSM usa este evento para ejecutar mqtt_handler_flush_pending()
         esp_mqtt_client_publish(client, "ESP_CONNECTED", DEVICE_ID, 0, 1, 0);
         break;
 
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "HiveMQ: desconectado");
         cliente_hivemq = NULL;
-        post_fsm_event(EV_MQTT_CONNECT_FAILURE);
+        ev = EV_MQTT_CONNECT_FAILURE;
+        post_fsm_event(ev);
         break;
 
     case MQTT_EVENT_DATA: {
         char topic[128];
-        char message[512];
+        char mensaje[256];
 
-        int topic_len = event->topic_len < (int)sizeof(topic) - 1 ? event->topic_len : (int)sizeof(topic) - 1;
-        int data_len  = event->data_len  < (int)sizeof(message) - 1 ? event->data_len : (int)sizeof(message) - 1;
+        int topic_len = event->topic_len < (int)sizeof(topic) - 1   ? event->topic_len  : (int)sizeof(topic) - 1;
+        int data_len  = event->data_len  < (int)sizeof(mensaje) - 1 ? event->data_len   : (int)sizeof(mensaje) - 1;
 
-        memcpy(topic, event->topic, topic_len);
-        topic[topic_len] = '\0';
-
-        memcpy(message, event->data, data_len);
-        message[data_len] = '\0';
+        memcpy(topic,   event->topic, topic_len);  topic[topic_len]   = '\0';
+        memcpy(mensaje, event->data,  data_len);   mensaje[data_len]  = '\0';
 
         ESP_LOGI(TAG, "HiveMQ mensaje en topic: %s", topic);
-        ESP_LOGI(TAG, "HiveMQ datos: %s", message);
+        ESP_LOGI(TAG, "HiveMQ datos: %s", mensaje);
 
 #if DEVICE_IS_LCD
         if (strcmp(topic, TOPIC_COMUNICACION) == 0) {
-            procesar_json_recibido(message);
+            procesar_json_recibido(mensaje);
         } else {
             ESP_LOGI(TAG, "Topic desconocido, ignorado");
         }
@@ -362,6 +431,12 @@ static void mqtt_hivemq_event_handler(void *handler_args,
     }
 
     case MQTT_EVENT_PUBLISHED:
+        /*
+         * CAMBIO:
+         * Antes se enviaba EV_MQTT_PUBLISH_SUCCESS a la FSM aca.
+         * Se elimina ese envio porque la FSM actual decide exito/fallo por el return bool
+         * de procesar_y_publicar(). Mandar otro evento aca puede generar duplicados.
+         */
         ESP_LOGI(TAG, "HiveMQ: publicacion confirmada");
         break;
 
@@ -371,6 +446,11 @@ static void mqtt_hivemq_event_handler(void *handler_args,
             ESP_LOGE(TAG, "Tipo: %d", event->error_handle->error_type);
             ESP_LOGE(TAG, "esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
             ESP_LOGE(TAG, "socket errno: %d", event->error_handle->esp_transport_sock_errno);
+
+            if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+                ev = EV_MQTT_CONNECT_FAILURE;
+                post_fsm_event(ev);
+            }
         }
         break;
 
@@ -378,6 +458,8 @@ static void mqtt_hivemq_event_handler(void *handler_args,
         break;
     }
 }
+
+// ─── Inicio MQTT ─────────────────────────────────────────────────────────────
 
 void iniciar_mqtt(void)
 {
@@ -390,45 +472,74 @@ void iniciar_mqtt(void)
         ESP_LOGE(TAG, "No se pudo crear cliente HiveMQ");
         return;
     }
-
     esp_mqtt_client_register_event(hive_client, ESP_EVENT_ANY_ID, mqtt_hivemq_event_handler, NULL);
     esp_mqtt_client_start(hive_client);
 }
 
-bool procesar_y_publicar_qr(Product producto_escaneado)
+// ─── Publicacion ─────────────────────────────────────────────────────────────
+
+static bool publicar_evento(Product producto, const char *estado)
 {
-    return publish_now(producto_escaneado, "OK", topic_for_outgoing_state());
+    time_t timestamp = timestamp_or_fallback();
+    const char *topic = topic_salida();
+
+    return publicar_evento_con_timestamp(producto, estado, topic, timestamp, true);
 }
 
-bool procesar_y_publicar_manual(Product producto_manual)
+/*
+ * Publica un producto valido con estado OK.
+ *
+ * CAMBIO DE LIMPIEZA:
+ * Se vuelve al nombre original del equipo MQTT: procesar_y_publicar(...).
+ * No se separa entre "QR" y "manual" porque hoy MQTT no necesita conocer
+ * el origen del producto. La FSM puede haber confirmado un QR, una seleccion
+ * manual o una cantidad, pero para MQTT el resultado es el mismo: producto OK.
+ */
+bool procesar_y_publicar(Product producto)
 {
-    return publish_now(producto_manual, "MANUAL", topic_for_outgoing_state());
+    return publicar_evento(producto, "OK");
 }
 
 bool procesar_y_publicar_error(const char *mensaje_error)
 {
-    Product error_product;
-    memset(&error_product, 0, sizeof(error_product));
+    Product producto_error;
+    memset(&producto_error, 0, sizeof(producto_error));
 
-    safe_copy(error_product.id, "ERROR", sizeof(error_product.id));
-    safe_copy(error_product.name, mensaje_error != NULL ? mensaje_error : "Error desconocido", sizeof(error_product.name));
-    error_product.stock = 0;
+    safe_copy(producto_error.id, "ERROR", sizeof(producto_error.id));
+    safe_copy(producto_error.name, mensaje_error != NULL ? mensaje_error : "Error desconocido", sizeof(producto_error.name));
+    producto_error.stock = 0;
 
-    const char *topic = topic_for_outgoing_state();
+    const char *topic = topic_salida();
 
-    if (publish_now(error_product, "ERROR", topic)) {
+    if (publicar_evento(producto_error, "ERROR")) {
         return true;
     }
 
-    /* Los errores no pasan por save_to_local_buffer de la FSM, por eso se guardan aca. */
-    return store_pending(error_product, "ERROR", topic);
+    /*
+     * CAMBIO AGREGADO:
+     * Los errores no siempre pasan por el callback store_pending de la FSM,
+     * entonces se guardan aca si no se pudieron publicar.
+     */
+    return guardar_pendiente(producto_error, "ERROR", topic, 0);
 }
 
-bool mqtt_handler_store_pending_qr(Product producto_escaneado)
+/*
+ * Callback usado por la FSM cuando publicar un producto valido falla.
+ *
+ * CAMBIO DE LIMPIEZA:
+ * Antes se llamaba mqtt_handler_store_pending_qr(...). Se renombro porque no hay una
+ * cola distinta para QR/manual. Todo producto valido pendiente se guarda igual.
+ */
+bool mqtt_handler_store_pending(Product producto)
 {
-    return store_pending(producto_escaneado, "OK", topic_for_outgoing_state());
+    return guardar_pendiente(producto, "OK", topic_salida(), 0);
 }
 
+/*
+ * CAMBIO AGREGADO:
+ * Reenvia la cola persistente FIFO cuando MQTT vuelve.
+ * La FSM lo invoca al recibir EV_MQTT_CONNECT_SUCCESS.
+ */
 bool mqtt_handler_flush_pending(void)
 {
     if (cliente_hivemq == NULL) {
@@ -436,34 +547,34 @@ bool mqtt_handler_flush_pending(void)
         return false;
     }
 
-    int initial_count = pending_queue_count();
-    if (initial_count == 0) {
+    int count = pending_queue_count();
+    if (count == 0) {
         ESP_LOGI(TAG, "No hay eventos pendientes para reenviar");
         return true;
     }
 
-    ESP_LOGI(TAG, "Reenviando %d evento(s) pendiente(s) desde NVS", initial_count);
+    ESP_LOGI(TAG, "Reenviando %d evento(s) pendiente(s)", count);
 
     while (pending_queue_count() > 0) {
-        PendingMqttEvent pending_event;
-        memset(&pending_event, 0, sizeof(pending_event));
+        PendingMqttEvent ev_pendiente;
+        memset(&ev_pendiente, 0, sizeof(ev_pendiente));
 
-        if (!pending_queue_peek(&pending_event)) {
+        if (!pending_queue_peek(&ev_pendiente)) {
             ESP_LOGW(TAG, "No se pudo leer el proximo evento pendiente");
             return false;
         }
 
-        if (!publish_with_timestamp(pending_event.product,
-                                    pending_event.state,
-                                    pending_event.topic,
-                                    pending_event.timestamp,
-                                    true)) {
-            ESP_LOGW(TAG, "Se corta reenvio: no se pudo publicar el pendiente mas viejo");
+        if (!publicar_evento_con_timestamp(ev_pendiente.product,
+                                           ev_pendiente.state,
+                                           ev_pendiente.topic,
+                                           ev_pendiente.timestamp,
+                                           false)) {
+            ESP_LOGW(TAG, "No se pudo publicar el pendiente mas viejo. Se corta flush");
             return false;
         }
 
         if (!pending_queue_pop()) {
-            ESP_LOGW(TAG, "Publicado pendiente pero no se pudo quitar de NVS");
+            ESP_LOGW(TAG, "Publicado pendiente, pero no se pudo quitar de NVS");
             return false;
         }
     }

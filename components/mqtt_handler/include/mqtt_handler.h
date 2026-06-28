@@ -1,22 +1,36 @@
 #ifndef MQTT_HANDLER_H
 #define MQTT_HANDLER_H
 
-#include "shared_types.h"
 #include "logger.h"
+#include "shared_types.h"
+
 #include <stdbool.h>
 
-void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido); // guarda los punteros a los loggers que va a usar mqtt_handler
+/* Guarda los punteros a los loggers que usa mqtt_handler. */
+void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido);
 
-void iniciar_mqtt(void); // arranca el cliente mqtt y lo conecta al broker
+/* Arranca el cliente MQTT y lo conecta al broker HiveMQ. */
+void iniciar_mqtt(void);
 
-bool procesar_y_publicar_qr(Product producto_escaneado); // recibe un producto escaneado bien y lo publica con estado OK
+/*
+ * Publica un producto valido.
+ *
+ * Se conserva el nombre original de los muchachos MQTT para no inventar
+ * una distincion artificial entre "QR" y "manual". Y para que no me peguen
+ * El origen del producto lo resuelve la FSM/camara/LCD; MQTT solo publica
+ * un producto ya aceptado con estado OK.
+ */
+bool procesar_y_publicar(Product producto);
 
-bool procesar_y_publicar_manual(Product producto_manual); // recibe un producto ingresado manualmente y lo publica con estado MANUAL
+/* Publica un error con estado ERROR. Si falla, mqtt_handler lo guarda como pendiente. */
+bool procesar_y_publicar_error(const char *mensaje_error);
 
-bool procesar_y_publicar_error(const char *mensaje_error); // recibe un texto de error y lo publica con estado ERROR
-
-/* Cola offline: guarda eventos no publicados y los reenvia cuando MQTT vuelve. */
-bool mqtt_handler_store_pending_qr(Product producto_escaneado);
+/*
+ * NUEVO E IMPORTANTE ---- Cola offline persistente.
+ * La FSM puede llamar store_pending si falla publicar un producto valido,
+ * y flush_pending cuando MQTT vuelve a conectar.
+ */
+bool mqtt_handler_store_pending(Product producto);
 bool mqtt_handler_flush_pending(void);
 
-#endif
+#endif // MQTT_HANDLER_H

@@ -50,13 +50,18 @@ static void lcd_display_message_cb(const char *title, const char *message)
              message != NULL ? message : "");
 }
 
-static bool mqtt_publish_qr_cb(const Product *product)
+static bool mqtt_publish_product_cb(const Product *product)
 {
     if (product == NULL) {
         return false;
     }
 
-    return procesar_y_publicar_qr(*product); // este ya devuelve true si sale bien.
+    /*
+     * Adapter entre FSM y mqtt_handler:
+     * la FSM todavia llama a este callback desde el flujo QR/confirmacion,
+     * pero MQTT no necesita distinguir el origen. Publica un producto valido.
+     */
+    return procesar_y_publicar(*product);
 }
 
 static bool mqtt_publish_error_cb(const char *message)
@@ -64,13 +69,13 @@ static bool mqtt_publish_error_cb(const char *message)
    return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
 }
 
-static bool mqtt_store_pending_qr_cb(const Product *product)
+static bool mqtt_store_pending_product_cb(const Product *product)
 {
     if (product == NULL) {
         return false;
     }
 
-    return mqtt_handler_store_pending_qr(*product);
+    return mqtt_handler_store_pending(*product);
 }
 
 static bool mqtt_flush_pending_cb(void)
@@ -179,9 +184,9 @@ void app_main(void)
     FsmCallbacks callbacks = {
         .display_product = lcd_display_product_cb,
         .display_message = lcd_display_message_cb,
-        .publish_qr = mqtt_publish_qr_cb,
+        .publish_qr = mqtt_publish_product_cb,
         .publish_error = mqtt_publish_error_cb,
-        .store_pending_qr = mqtt_store_pending_qr_cb,
+        .store_pending_qr = mqtt_store_pending_product_cb,
         .flush_pending = mqtt_flush_pending_cb,
     };
 
@@ -223,5 +228,6 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
+
 
 
