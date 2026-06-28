@@ -1,10 +1,10 @@
 #include "mqtt_handler.h"
 #include "cJSON.h"
+#include "core.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "fsm.h"
 #include "logger.h"
 #include "mqtt_client.h"
 #include "ntp_handler.h"
@@ -16,18 +16,11 @@
 #include <time.h>
 
 static const char *TAG = "MQTT_APP";
+static const char *DEVICE_ID_LCD = "LCD_01";
+static const char *DEVICE_ID_CAM = "CAM_01";
 
-extern QueueHandle_t fsm_event_queue;
-
-#ifndef DEVICE_IS_LCD
-#define DEVICE_IS_LCD 1
-#endif
-
-#if DEVICE_IS_LCD
-static const char *DEVICE_ID = "LCD_01";
-#else
-static const char *DEVICE_ID = "CAM_01";
-#endif
+static const char *s_device_id = NULL;
+static DeviceMode s_device_mode = DEVICE_MODE_CAM; // mejor poner un default en vez de NULL
 
 /* Broker unico para comunicacion CAM->LCD y telemetria leida por ThingsBoard Integration. */
 static const char *HIVEMQ_URI = "mqtt://broker.hivemq.com:1883";
@@ -38,31 +31,6 @@ static esp_mqtt_client_handle_t cliente_hivemq = NULL;
 
 static Logger *logger_local_mqtt = NULL;
 static Logger *logger_recibido_mqtt = NULL;
-
-static void safe_copy(char *dest, const char *src, size_t dest_size) {
-    if (dest == NULL || dest_size == 0) {
-        return;
-    }
-
-    if (src == NULL) {
-        dest[0] = '\0';
-        return;
-    }
-
-    strncpy(dest, src, dest_size - 1);
-    dest[dest_size - 1] = '\0';
-}
-
-static void post_fsm_event(EventType ev) {
-    if (fsm_event_queue == NULL) {
-        ESP_LOGW(TAG, "fsm_event_queue no inicializada. Evento MQTT perdido: %d", ev);
-        return;
-    }
-
-    if (xQueueSend(fsm_event_queue, &ev, pdMS_TO_TICKS(10)) != pdPASS) {
-        ESP_LOGW(TAG, "No se pudo enviar evento MQTT a FSM: %d", ev);
-    }
-}
 
 static time_t timestamp_or_fallback(void) {
     time_t timestamp = 0;
@@ -80,24 +48,18 @@ static time_t timestamp_or_fallback(void) {
 }
 
 static const char *topic_for_outgoing_state(void) {
-#if DEVICE_IS_LCD
-    return TOPIC_TELEMETRY_HV;
-#else
-    return TOPIC_COMUNICACION;
-#endif
+    return (s_device_mode == DEVICE_MODE_LCD) ? TOPIC_TELEMETRY_HV : TOPIC_COMUNICACION;
 }
 
 static bool build_payload_for_topic(char *payload, size_t payload_size, const char *topic, Product product,
                                     const char *state, time_t timestamp) {
-    if (topic == NULL) {
+    if (topic == NULL)
         return false;
-    }
 
     if (strcmp(topic, TOPIC_TELEMETRY_HV) == 0) {
         return telemetry_build_telemetry_payload(product, state, timestamp, payload, payload_size);
     }
-
-    return telemetry_build_scan_payload(DEVICE_ID, product, state, timestamp, payload, payload_size);
+    return telemetry_build_scan_payload(s_device_id, product, state, timestamp, payload, payload_size);
 }
 
 static bool publish_with_timestamp(Product product, const char *state, const char *topic, time_t timestamp,
@@ -169,7 +131,7 @@ static bool parse_scan_payload(const char *message, Product *out_product, time_t
     cJSON *timestamp_json = cJSON_GetObjectItem(json, "timestamp");
     cJSON *state_json = cJSON_GetObjectItem(json, "estado");
 
-    if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {
+    if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, s_device_id) == 0) {
         ESP_LOGI(TAG, "Mensaje propio recibido, ignorado");
         cJSON_Delete(json);
         return true;
@@ -215,15 +177,15 @@ static bool procesar_json_recibido(const char *message) {
              received_product.id, received_product.name, (unsigned long)received_product.stock, (long long)timestamp,
              state);
 
-#if DEVICE_IS_LCD
-    /* En LCD, el scan de CAM entra a la FSM. La FSM valida catalogo, pregunta cantidad,
-       actualiza product_db y recien despues publica telemetria a ThingsBoard. */
-    if (strcmp(state, "ERROR") == 0) {
-        fsm_on_qr_invalid(received_product.name[0] != '\0' ? received_product.name : "Error recibido por MQTT");
-    } else {
-        fsm_on_qr_detected(received_product.id, received_product.name);
+    if (s_device_mode == DEVICE_MODE_LCD) {
+        /* En LCD, el scan de CAM entra a la FSM. La FSM valida catalogo, pregunta cantidad,
+           actualiza product_db y recien despues publica telemetria a ThingsBoard. */
+        if (strcmp(state, "ERROR") == 0) {
+            sys_on_qr_invalid(received_product.name[0] != '\0' ? received_product.name : "Error recibido por MQTT");
+        } else {
+            sys_on_qr_detected(received_product.id, received_product.name);
+        }
     }
-#endif
 
     return true;
 }
@@ -267,28 +229,27 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
     esp_mqtt_client_handle_t client = event->client;
 
     switch ((esp_mqtt_event_id_t)event_id) {
+
     case MQTT_EVENT_CONNECTED:
-        ESP_LOGI(TAG, "HiveMQ: conectado como %s", DEVICE_ID);
+        ESP_LOGI(TAG, "HiveMQ: conectado como %s", s_device_id);
         cliente_hivemq = client;
 
         esp_mqtt_client_subscribe(client, "control/configuracion", 0);
 
-#if DEVICE_IS_LCD
-        esp_mqtt_client_subscribe(client, TOPIC_COMUNICACION, 0);
-        ESP_LOGI(TAG, "LCD: suscrito a %s", TOPIC_COMUNICACION);
-        publicar_catalogo_inicial(client);
-#else
-        ESP_LOGI(TAG, "CAM: publicara scans en %s", TOPIC_COMUNICACION);
-#endif
+        if (s_device_mode == DEVICE_MODE_LCD) {
+            esp_mqtt_client_subscribe(client, TOPIC_COMUNICACION, 0);
+            ESP_LOGI(TAG, "LCD: suscrito a %s", TOPIC_COMUNICACION);
+            publicar_catalogo_inicial(client);
+        } else {
+            ESP_LOGI(TAG, "CAM: publicara scans en %s", TOPIC_COMUNICACION);
+        }
 
-        post_fsm_event(EV_MQTT_CONNECT_SUCCESS);
-        esp_mqtt_client_publish(client, "ESP_CONNECTED", DEVICE_ID, 0, 1, 0);
+        esp_mqtt_client_publish(client, "ESP_CONNECTED", s_device_id, 0, 1, 0);
         break;
 
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "HiveMQ: desconectado");
         cliente_hivemq = NULL;
-        post_fsm_event(EV_MQTT_CONNECT_FAILURE);
         break;
 
     case MQTT_EVENT_DATA: {
@@ -300,22 +261,21 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
 
         memcpy(topic, event->topic, topic_len);
         topic[topic_len] = '\0';
-
         memcpy(message, event->data, data_len);
         message[data_len] = '\0';
 
         ESP_LOGI(TAG, "HiveMQ mensaje en topic: %s", topic);
         ESP_LOGI(TAG, "HiveMQ datos: %s", message);
 
-#if DEVICE_IS_LCD
-        if (strcmp(topic, TOPIC_COMUNICACION) == 0) {
-            procesar_json_recibido(message);
+        if (s_device_mode == DEVICE_MODE_LCD) {
+            if (strcmp(topic, TOPIC_COMUNICACION) == 0) {
+                procesar_json_recibido(message);
+            } else {
+                ESP_LOGI(TAG, "Topic desconocido, ignorado");
+            }
         } else {
-            ESP_LOGI(TAG, "Topic desconocido, ignorado");
+            ESP_LOGW(TAG, "CAM recibio mensaje inesperado en topic: %s", topic);
         }
-#else
-        ESP_LOGW(TAG, "CAM recibio mensaje inesperado en topic: %s", topic);
-#endif
         break;
     }
 
@@ -337,19 +297,34 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
     }
 }
 
-void mqtt_handler_init(void) {
+esp_err_t mqtt_handler_init(void) {
+    s_device_mode = sys_get_mode();
+    s_device_id = (s_device_mode == DEVICE_MODE_LCD) ? DEVICE_ID_LCD : DEVICE_ID_CAM;
+
     esp_mqtt_client_config_t hivemq_cfg = {
         .broker.address.uri = HIVEMQ_URI,
     };
 
     esp_mqtt_client_handle_t hive_client = esp_mqtt_client_init(&hivemq_cfg);
     if (hive_client == NULL) {
-        ESP_LOGE(TAG, "No se pudo crear cliente HiveMQ");
-        return;
+        ESP_LOGE(TAG, "Failed to create HiveMQ client");
+        return ESP_ERR_NO_MEM;
     }
 
-    esp_mqtt_client_register_event(hive_client, ESP_EVENT_ANY_ID, mqtt_hivemq_event_handler, NULL);
-    esp_mqtt_client_start(hive_client);
+    esp_err_t err = esp_mqtt_client_register_event(hive_client, ESP_EVENT_ANY_ID, mqtt_hivemq_event_handler, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register MQTT event handler: 0x%x", err);
+        return err;
+    }
+
+    err = esp_mqtt_client_start(hive_client);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start MQTT client: 0x%x", err);
+        return err;
+    }
+
+    ESP_LOGI(TAG, "MQTT client initialized and started successfully");
+    return ESP_OK;
 }
 
 bool procesar_y_publicar_qr(Product producto_escaneado) {

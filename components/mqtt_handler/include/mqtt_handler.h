@@ -7,7 +7,7 @@
 
 void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido); // guarda los punteros a los loggers que va a usar mqtt_handler
 
-void mqtt_handler_init(void); // arranca el cliente mqtt y lo conecta al broker
+esp_err_t mqtt_handler_init(void); // arranca el cliente mqtt y lo conecta al broker
 
 bool procesar_y_publicar_qr(Product producto_escaneado); // recibe un producto escaneado bien y lo publica con estado OK
 

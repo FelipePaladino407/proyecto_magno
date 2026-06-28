@@ -21,6 +21,11 @@ typedef struct {
     char state[16]; // OK, ERROR o ingreso MANUAL
 } HistoryEntry;
 
+typedef enum {
+    DEVICE_MODE_CAM = 0,
+    DEVICE_MODE_LCD = 1,
+} DeviceMode;
+
 #define CATALOGO_SIZE 30
 
 extern const ProductoCatalogo catalogo_completo[CATALOGO_SIZE];

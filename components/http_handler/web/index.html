@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configuracion Wi-Fi</title>
+    <title>Configuracion</title>
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="card">
-        <h1>Configuracion Wi-Fi</h1>
-        <p>Ingresa los datos de la red a la que queres conectar la placa.</p>
+        <h1>Configuracion</h1>
+        <p>Ingresa los datos de la red a la que queres conectar la placa y el modo.</p>
 
-        <form id="wifiForm" method="POST" action="/api/wifi">
+        <form id="configForm" method="POST" action="/api/config">
             <label for="ssid">Nombre de red (SSID)</label>
             <input id="ssid" name="ssid" type="text"
                    maxlength="32" autocomplete="off"
@@ -21,6 +21,12 @@
             <input id="password" name="password" type="password"
                    maxlength="63" autocomplete="new-password"
                    placeholder="Vacia si la red es abierta">
+
+            <label for="board_mode">Modo</label>
+            <select id="board_mode" name="board_mode" required>
+                <option value="DISPLAY">DISPLAY</option>
+                <option value="CAM">CAM</option>
+            </select>
 
             <button type="submit">Guardar y conectar</button>
         </form>

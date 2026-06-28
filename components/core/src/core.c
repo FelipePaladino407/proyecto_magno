@@ -2,25 +2,57 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "ev_queue.h"
-#include "fsm.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "freertos/projdefs.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "http_handler.h"
+#include "input_handler.h"
+#include "logger.h"
+#include "mqtt_handler.h"
+#include "ntp_handler.h"
 #include "product_db.h"
-#include <string.h>
+#include "qr_handler.h"
+#include "rgb_led.h"
+#include "shared_types.h"
+#include "wifi_manager.h"
+#include <stdbool.h>
 
 static const char *TAG = "CORE";
-
+static DeviceMode s_device_mode;
 static SystemContext s_context;
+static Logger logger_local;
+static Logger logger_recibido;
 
-esp_err_t core_init(void) {
-    ev_queue_init();
-    fsm_init();
+void safe_copy(char *dest, const char *src, size_t dest_size) {
+    if (dest == NULL || dest_size == 0) {
+        return;
+    }
+
+    if (src == NULL) {
+        dest[0] = '\0';
+        return;
+    }
+
+    strncpy(dest, src, dest_size - 1);
+    dest[dest_size - 1] = '\0';
+}
+
+DeviceMode sys_get_mode(void) {
+    return s_device_mode;
+}
+
+void sys_set_mode(DeviceMode mode) {
+    s_device_mode = mode;
 }
 
 // context para la logica
-SystemContext *app_logic_get_context(void) {
+SystemContext *sys_get_context(void) {
     return &s_context;
 }
 
-bool app_logic_get_active_product(Product *out) {
+bool sys_get_active_product(Product *out) {
     if (s_context.current_product_valid && out != NULL) {
         *out = s_context.current_product;
         return true;
@@ -28,26 +60,23 @@ bool app_logic_get_active_product(Product *out) {
     return false;
 }
 
-uint32_t app_logic_get_selected_quantity(void) {
+uint32_t sys_get_selected_quantity(void) {
     return s_context.current_product_quantity;
 }
 
-const char *app_logic_get_last_error(void) {
+const char *sys_get_last_error(void) {
     return s_context.last_error;
 }
 
-void sys_set_pending_scan(const char *id, const char *name) {
+void sys_set_pending_scan(const char *id, const char *name, bool valid) {
     memset(&s_context.current_product, 0, sizeof(Product));
-    if (id != NULL) {
-        strncpy(s_context.current_product.id, id, sizeof(s_context.current_product.id) - 1);
-        s_context.current_product.id[sizeof(s_context.current_product.id) - 1] = '\0';
-    }
-    if (name != NULL) {
-        strncpy(s_context.current_product.name, name, sizeof(s_context.current_product.name) - 1);
-        s_context.current_product.name[sizeof(s_context.current_product.name) - 1] = '\0';
-    }
+
+    safe_copy(s_context.current_product.id, id != NULL ? id : "", sizeof(s_context.current_product.id));
+
+    safe_copy(s_context.current_product.name, name != NULL ? name : "", sizeof(s_context.current_product.name));
+
     s_context.current_product.stock = 0;
-    s_context.current_product_valid = (id != NULL && id[0] != '\0');
+    s_context.current_product_valid = valid;
 }
 
 void sys_set_selected_quantity(uint32_t quantity) {
@@ -78,25 +107,57 @@ void sys_reset_context(void) {
     s_context.last_error[0] = '\0';
 }
 
-static void action_setup(void) {
+void action_setup(void) {
+    esp_err_t err = ESP_OK;
+
+    err |= wifi_manager_init();
+    err |= http_handler_init();
+    err |= rgb_led_init();
+    err |= ntp_clock_init();
+
+    if (s_device_mode == DEVICE_MODE_LCD) {
+        err |= product_db_init();
+        err |= button_int_config();
+
+        product_db_load_default_catalog();
+
+        logger_init(&logger_local, "local");
+        logger_init(&logger_recibido, "recibido");
+        mqtt_handler_set_loggers(&logger_local, &logger_recibido);
+    } else {
+        err |= qr_scanner_handler_init();
+    }
+
+    err |= mqtt_handler_init();
+
+    if (err == ESP_OK) {
+        ev_queue_post(EV_SETUP_SUCCESS);
+    } else {
+        ev_queue_post(EV_SETUP_FAILURE);
+    }
 }
 
-static void action_reset_to_idle(void) {
+void action_retry_setup(void) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ev_queue_post(EV_SETUP);
+}
+
+void action_reset_to_idle(void) {
     sys_reset_context();
 }
 
-static void action_throw_error(void) {
-    const char *err = app_logic_get_last_error();
+void action_throw_error(void) {
+    const char *err = sys_get_last_error();
     const char *msg = (err != NULL && err[0] != '\0') ? err : "Error desconocido";
     ESP_LOGE(TAG, "Error display: %s", msg);
 
     // mostrar error en el display
 }
 
-static void action_db_lookup(void) {
+void action_db_lookup(void) {
     Product pending;
 
-    if (!app_logic_get_active_product(&pending) || pending.id[0] == '\0') {
+    if (!sys_get_active_product(&pending) || pending.id[0] == '\0') {
         sys_set_last_error("No hay producto activo");
         ev_queue_post(EV_PRODUCT_NOT_FOUND);
         return;
@@ -122,10 +183,10 @@ static void action_db_lookup(void) {
     return;
 }
 
-static void action_prompt_add_product(void) {
+void action_prompt_add_product(void) {
 }
 
-static void action_enter_quantity_selection(void) {
+void action_enter_quantity_selection(void) {
     sys_set_selected_quantity(1);
 
     char msg[32];
@@ -134,8 +195,8 @@ static void action_enter_quantity_selection(void) {
     // show changes on display
 }
 
-static void action_quantity_up(void) {
-    uint32_t qty = app_logic_get_selected_quantity();
+void action_quantity_up(void) {
+    uint32_t qty = sys_get_selected_quantity();
     if (qty < 99) {
         qty++;
         sys_set_selected_quantity(qty);
@@ -146,8 +207,8 @@ static void action_quantity_up(void) {
     // show changes on display
 }
 
-static void action_quantity_down(void) {
-    uint32_t qty = app_logic_get_selected_quantity();
+void action_quantity_down(void) {
+    uint32_t qty = sys_get_selected_quantity();
     if (qty > 1) {
         qty--;
         sys_set_selected_quantity(qty);
@@ -158,16 +219,16 @@ static void action_quantity_down(void) {
     // show changes on display
 }
 
-static void action_stock_update(void) {
+void action_stock_update(void) {
     Product current;
 
-    if (!app_logic_get_active_product(&current)) {
+    if (!sys_get_active_product(&current)) {
         sys_set_last_error("No hay producto activo para actualizar");
         ev_queue_post(EV_STOCK_UPDATE_FAILURE);
         return;
     }
 
-    uint32_t qty = app_logic_get_selected_quantity();
+    uint32_t qty = sys_get_selected_quantity();
     Product updated;
     memset(&updated, 0, sizeof(updated));
 
@@ -189,7 +250,7 @@ static void action_stock_update(void) {
     ev_queue_post(EV_STOCK_UPDATE_SUCCESS);
 }
 
-static void action_product_overview(void) {
+void action_product_overview(void) {
     // get active product
     Product product;
 
@@ -198,10 +259,10 @@ static void action_product_overview(void) {
     // aca el display lo tiene que mostrar
 }
 
-static void action_mqtt_publish(void) {
+void action_mqtt_publish(void) {
     Product product;
 
-    if (!app_logic_get_active_product(&product)) {
+    if (!sys_get_active_product(&product)) {
         ESP_LOGW(TAG, "MQTT publish: no active product");
         ev_queue_post(EV_MQTT_PUBLISH_FAILURE);
         return;
@@ -211,4 +272,22 @@ static void action_mqtt_publish(void) {
 
     // aca falta llamar a la logica del mqtt para hacer el publish
     ev_queue_post(EV_MQTT_PUBLISH_SUCCESS);
+}
+
+// ==============================================================
+bool sys_on_qr_detected(const char *id, const char *name) {
+    sys_set_pending_scan(id, name, true);
+
+    ESP_LOGI(TAG, "QR detected -> ID=%s | Name=%s", id, name);
+
+    return ev_queue_post(EV_QR_RECEIVED);
+}
+
+bool sys_on_qr_invalid(const char *reason) {
+    sys_set_pending_scan("", "", false);
+    sys_set_last_error(reason != NULL ? reason : "Invalid QR");
+
+    ESP_LOGW(TAG, "Invalid QR: %s", sys_get_last_error());
+
+    return ev_queue_post(EV_QR_RECEIVED);
 }

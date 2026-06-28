@@ -1,13 +1,13 @@
 #include "http_handler.h"
-
-#include <ctype.h>
+#include "esp_http_server.h"
+#include "esp_log.h"
+#include "nvs.h"
+#include "wifi_manager.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "esp_http_server.h"
-#include "esp_log.h"
-#include "wifi_manager.h"
+#define NVS_KEY_BOARD_MODE "board_mode"
 
 // TAG para logs
 static const char *TAG = "http_handler";
@@ -82,8 +82,8 @@ static bool url_decode(const char *src, char *dst, size_t dst_size) {
     return true;
 }
 
-// POST /api/wifi — recibe ssid y password del formulario
-static esp_err_t wifi_config_handler(httpd_req_t *req) {
+// POST /api/config — recibe ssid, password y board_mode del formulario
+static esp_err_t config_handler(httpd_req_t *req) {
     if (req->content_len <= 0 || req->content_len > 512) {
         httpd_resp_set_status(req, "400 Bad Request");
         return httpd_resp_sendstr(req, "Solicitud invalida");
@@ -109,26 +109,41 @@ static esp_err_t wifi_config_handler(httpd_req_t *req) {
 
     char enc_ssid[129] = {0};
     char enc_pass[257] = {0};
+    char enc_mode[17] = {0}; // "DISPLAY" o "CAM"
     char ssid[33] = {0};
     char password[64] = {0};
+    char board_mode[17] = {0};
 
     esp_err_t r_ssid = httpd_query_key_value(body, "ssid", enc_ssid, sizeof(enc_ssid));
     esp_err_t r_pass = httpd_query_key_value(body, "password", enc_pass, sizeof(enc_pass));
+    esp_err_t r_mode = httpd_query_key_value(body, "board_mode", enc_mode, sizeof(enc_mode));
     free(body);
 
-    if (r_ssid != ESP_OK || !url_decode(enc_ssid, ssid, sizeof(ssid)) ||
-        !url_decode(enc_pass, password, sizeof(password))) {
+    if (r_ssid != ESP_OK || !url_decode(enc_ssid, ssid, sizeof(ssid))) {
         httpd_resp_set_status(req, "400 Bad Request");
-        return httpd_resp_sendstr(req, "SSID o contrasena invalidos");
+        return httpd_resp_sendstr(req, "SSID invalido");
     }
 
     if (r_pass != ESP_OK)
         password[0] = '\0';
 
-    esp_err_t err = wifi_manager_set_credentials(ssid, password);
+    if (r_mode != ESP_OK || !url_decode(enc_mode, board_mode, sizeof(board_mode))) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_sendstr(req, "Modo de placa invalido");
+    }
+
+    // Guardar board_mode en NVS
+    esp_err_t err = nvs_storage_set_str(NVS_KEY_BOARD_MODE, board_mode);
     if (err != ESP_OK) {
         httpd_resp_set_status(req, "500 Internal Server Error");
-        return httpd_resp_sendstr(req, "No se pudo guardar la configuracion");
+        return httpd_resp_sendstr(req, "No se pudo guardar el modo de placa");
+    }
+
+    // Guardar credenciales WiFi
+    err = wifi_manager_set_credentials(ssid, password);
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return httpd_resp_sendstr(req, "No se pudo guardar la configuracion WiFi");
     }
 
     httpd_resp_set_status(req, "200 OK");
@@ -155,13 +170,13 @@ esp_err_t http_handler_init(void) {
     const httpd_uri_t uri_index_html = {.uri = "/index.html", .method = HTTP_GET, .handler = index_handler};
     const httpd_uri_t uri_css = {.uri = "/style.css", .method = HTTP_GET, .handler = style_handler};
     const httpd_uri_t uri_js = {.uri = "/app.js", .method = HTTP_GET, .handler = js_handler};
-    const httpd_uri_t uri_wifi = {.uri = "/api/wifi", .method = HTTP_POST, .handler = wifi_config_handler};
+    const httpd_uri_t uri_config = {.uri = "/api/config", .method = HTTP_POST, .handler = config_handler};
 
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_index));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_index_html));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_css));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_js));
-    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_wifi));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_config));
 
     ESP_LOGI(TAG, "Servidor iniciado en http://192.168.4.1");
     return ESP_OK;

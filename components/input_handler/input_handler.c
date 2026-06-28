@@ -34,8 +34,7 @@ static void IRAM_ATTR button_isr_handler(void *arg) {
 
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    // MUY IMPORTANTE NO USAR EL xQueueSend común.
-    xQueueSendFromISR(fsm_event_queue, &event_to_send, &xHigherPriorityTaskWoken);
+    ev_queue_post_from_isr(event_to_send, &xHigherPriorityTaskWoken);
 
     if (xHigherPriorityTaskWoken == pdTRUE) {
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
