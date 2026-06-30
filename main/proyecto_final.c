@@ -183,6 +183,7 @@ static void touchpad_task(void *pvParameters)
 {
     (void)pvParameters;
     int counter = 0;
+    EventType event;
 while (1) {
     bool was_pressed[TOUCHPAD_NUM_BUTTONS] = {false};
             for (uint8_t i = 0; i < TOUCHPAD_NUM_BUTTONS; i++){
@@ -195,11 +196,14 @@ while (1) {
                     case 0:
                     counter++;
                     ESP_LOGI(TAG, "Boton 0 presionado. Contador: %d", counter);
-                    fsm_set_selected_quantity(counter);
+                    event = EV_BTN_UP;
+                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
                     break;
 
                     case 1:
                     OK = true;
+                    event = EV_BTN_CONFIRM;
+                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
                     ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
 
                     break;
@@ -207,13 +211,16 @@ while (1) {
                     case 2:
                     if (counter > 1) {
                         counter--;
-                        fsm_set_selected_quantity(counter);
+                        event = EV_BTN_DOWN;
+                        xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
                     }
                     ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
                     break;
 
                     case 3:
                     OK = false;
+                    event = EV_BTN_CANCEL;
+                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
                     ESP_LOGI(TAG, "Boton 3 presionado. OK: %d", OK);
                     break;
 
