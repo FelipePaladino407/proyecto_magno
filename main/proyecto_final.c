@@ -25,7 +25,7 @@
 
 static const char *TAG = "MAIN";
 
-int counter = 0;
+int counter = 1;
 bool OK;
 
 QueueHandle_t fsm_event_queue = NULL;
@@ -200,6 +200,13 @@ while (1) {
                     case 1:
                     OK = true;
                     ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
+                    break;
+
+                    case 2:
+                    if (counter > 1) {
+                        counter--;
+                    }
+                    ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
                     break;
 
                     case 3:
