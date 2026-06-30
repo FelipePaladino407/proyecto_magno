@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "shared_types.h"
 
-#define HASH_TABLE_SIZE 32
+#define HASH_TABLE_SIZE 64
 
 typedef enum {
     ENTRY_EMPTY,

@@ -54,6 +54,10 @@ typedef struct {
 
     bool (*publish_qr)(const Product *product);
     bool (*publish_error)(const char *message);
+
+    /* Usados para la cola offline persistente cuando MQTT no esta disponible. */
+    bool (*store_pending_qr)(const Product *product);
+    bool (*flush_pending)(void);
 } FsmCallbacks;
 
 void fsm_init(void);

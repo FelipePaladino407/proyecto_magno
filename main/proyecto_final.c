@@ -17,18 +17,25 @@
 #include "unit_test.h"
 #include "input_handler.h"
 #include "product_db.h"
+#include "pending_queue.h"
+#include "touchpad.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
 static const char *TAG = "MAIN";
 
+bool OK;
+
 QueueHandle_t fsm_event_queue = NULL;
 
 static Logger logger_local;
 static Logger logger_recibido;
 
-#define ENABLE_FAKE_QR_DEMO 1
+#define ENABLE_FAKE_QR_DEMO 0
+
+#define TOUCHPAD_NUM_BUTTONS 4
+#define POLL_INTERVAL 1000 /*   50 ms entre lecturas    */
 
 static void lcd_display_product_cb(const Product *product)
 {
@@ -49,18 +56,57 @@ static void lcd_display_message_cb(const char *title, const char *message)
              message != NULL ? message : "");
 }
 
-static bool mqtt_publish_qr_cb(const Product *product)
+static bool mqtt_publish_product_cb(const Product *product)
 {
     if (product == NULL) {
         return false;
     }
 
-    return procesar_y_publicar(*product); // este ya devuelve true si sale bien.
+    /*
+     * Adapter entre FSM y mqtt_handler:
+     * la FSM todavia llama a este callback desde el flujo QR/confirmacion,
+     * pero MQTT no necesita distinguir el origen. Publica un producto valido.
+     */
+    return procesar_y_publicar(*product);
 }
 
 static bool mqtt_publish_error_cb(const char *message)
 {
    return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
+}
+
+static bool mqtt_store_pending_product_cb(const Product *product)
+{
+    if (product == NULL) {
+        return false;
+    }
+
+    return mqtt_handler_store_pending(*product);
+}
+
+static bool mqtt_flush_pending_cb(void)
+{
+    return mqtt_handler_flush_pending();
+}
+
+static void network_services_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    wifi_manager_status_t status;
+
+    while (true) {
+        wifi_manager_get_status(&status);
+
+        if (status.connected) {
+            ESP_LOGI(TAG, "WiFi listo con IP %s. Inicializando NTP y MQTT...", status.ip_address);
+            init_time();
+            iniciar_mqtt();
+            vTaskDelete(NULL);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 static void post_touch_event(EventType event)
@@ -77,11 +123,11 @@ static void fake_qr_demo_task(void *pvParameters)
 
     vTaskDelay(pdMS_TO_TICKS(25000));
 
-    ESP_LOGI(TAG, "[FAKE_CAMERA] QR valido: PROD001/Cigarros");
-    fsm_on_qr_detected("PROD001", "Cigarros");
+    ESP_LOGI(TAG, "[FAKE_CAMERA] QR valido: LAC-LEC-001/Leche Entera 1L");
+    fsm_on_qr_detected("LAC-LEC-001", "Leche Entera 1L");
 
     vTaskDelay(pdMS_TO_TICKS(20000));
-    ESP_LOGI(TAG, "[FAKE_TOUCH] Confirmar que se quiere agregar PROD001");
+    ESP_LOGI(TAG, "[FAKE_TOUCH] Confirmar que se quiere agregar LAC-LEC-001");
     post_touch_event(EV_BTN_CONFIRM);
 
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -123,24 +169,62 @@ void fsm_task(void *pvParameters)
     }
 }
 
-static void load_demo_catalog(void)
+static void load_catalog(void)
 {
-    Product product;
+    uint32_t loaded = product_db_load_default_catalog();
 
-    if (product_db_upsert_product("PROD001", "Cigarros", 0, &product)) {
-        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu",
-                 product.id,
-                 product.name,
-                 (unsigned long)product.stock);
-    }
+    ESP_LOGI(TAG,
+             "Catalogo compartido cargado en product_db -> %lu/%d productos con stock inicial 0",
+             (unsigned long)loaded,
+             CATALOGO_SIZE);
+}
 
-    if (product_db_upsert_product("PROD002", "Brownies", 0, &product)) {
-        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu",
-                 product.id,
-                 product.name,
-                 (unsigned long)product.stock);
+static void touchpad_task(void *pvParameters)
+{
+    (void)pvParameters;
+    int counter = 0;
+while (1) {
+    bool was_pressed[TOUCHPAD_NUM_BUTTONS] = {false};
+            for (uint8_t i = 0; i < TOUCHPAD_NUM_BUTTONS; i++){
+            bool pressed = touchpad_is_pressed(i);
+            
+            if (pressed && !was_pressed[i]) {
+
+                switch (i){
+
+                    case 0:
+                    counter++;
+                    ESP_LOGI(TAG, "Boton 0 presionado. Contador: %d", counter);
+                    fsm_set_selected_quantity(counter);
+                    break;
+
+                    case 1:
+                    OK = true;
+                    ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
+
+                    break;
+
+                    case 2:
+                    if (counter > 1) {
+                        counter--;
+                        fsm_set_selected_quantity(counter);
+                    }
+                    ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
+                    break;
+
+                    case 3:
+                    OK = false;
+                    ESP_LOGI(TAG, "Boton 3 presionado. OK: %d", OK);
+                    break;
+
+                }
+            }
+            was_pressed[i] = pressed;
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
     }
 }
+
 
 void app_main(void)
 {
@@ -153,12 +237,14 @@ void app_main(void)
     FsmCallbacks callbacks = {
         .display_product = lcd_display_product_cb,
         .display_message = lcd_display_message_cb,
-        .publish_qr = mqtt_publish_qr_cb,
+        .publish_qr = mqtt_publish_product_cb,
         .publish_error = mqtt_publish_error_cb,
+        .store_pending_qr = mqtt_store_pending_product_cb,
+        .flush_pending = mqtt_flush_pending_cb,
     };
 
     product_db_init();
-    load_demo_catalog();
+    load_catalog();
 
     /* Los tests usan solo la tabla de transiciones. No registramos callbacks reales hasta terminar. */
 //    fsm_init();
@@ -174,6 +260,7 @@ void app_main(void)
     rgb_led_init();
 
     ESP_ERROR_CHECK(nvs_storage_init());
+    pending_queue_init();
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(http_handler_start());
 
@@ -184,15 +271,20 @@ void app_main(void)
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
-    init_time();
-    iniciar_mqtt();
+    touchpad_init();
+
+    xTaskCreate(&network_services_task, "NETWORK_SERVICES", 4096, NULL, 1, NULL);
 
 #if ENABLE_FAKE_QR_DEMO
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
 #endif
 
+    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
+    
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
+
+
 

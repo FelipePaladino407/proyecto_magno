@@ -23,11 +23,8 @@
 
 static const char *TAG = "MQTT_APP";
 extern QueueHandle_t fsm_event_queue;
-QueueHandle_t fsm_mqtt_data_queue;
 
 static esp_mqtt_client_handle_t cliente_hivemq = NULL;
-
-bool procesar_y_publicar_LOGI(const char *LOGI);
 
 static Logger *logger_local_mqtt    = NULL;
 static Logger *logger_recibido_mqtt = NULL;
@@ -51,7 +48,7 @@ static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";      // CAM ->
 static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry"; // LCD -> ThingsBoard Integration
 static const char *TOPIC_LOGI         = "ucuiot/magno/x7k2/LOGI";
 
-static void safe_copy(char *dest, const char *src, size_t dest_size)//como strncpy pero evita crashear si src es NULL y asegura terminacion nula sin tener que hacerlo a cada rato el "/0"
+static void safe_copy(char *dest, const char *src, size_t dest_size)
 {
     if (dest == NULL || dest_size == 0) {
         return;
@@ -69,19 +66,17 @@ static void safe_copy(char *dest, const char *src, size_t dest_size)//como strnc
 /*
  * CAMBIO AGREGADO:
  * evita repetir xQueueSend y, sobre todo, evita crashear si la cola FSM aun no existe.
- * Se mantiene porque la FSM sigue usando EV_MQTT_CONNECT_SUCCESS para hacer flush_pending (cola de pendientes).
+ * Se mantiene porque la FSM sigue usando EV_MQTT_CONNECT_SUCCESS para hacer flush_pending.
  */
-static void post_fsm_event(EventType ev)//FSM tiene una cola de eventos a dodne mandar las cosas que pasan
+static void post_fsm_event(EventType ev)
 {
     if (fsm_event_queue == NULL) {
         ESP_LOGW(TAG, "fsm_event_queue no inicializada. Evento MQTT perdido: %d", ev);
-        procesar_y_publicar_LOGI("WARN: cola FSM no inicializada, evento MQTT perdido");
         return;
     }
 
     if (xQueueSend(fsm_event_queue, &ev, pdMS_TO_TICKS(10)) != pdPASS) {
         ESP_LOGW(TAG, "No se pudo enviar evento MQTT a FSM: %d", ev);
-        procesar_y_publicar_LOGI("WARN: no se pudo enviar evento MQTT a FSM");
     }
 }
 
@@ -95,7 +90,7 @@ static time_t timestamp_or_fallback(void)
     time_t timestamp = 0;
 
     if (!get_timestamp(&timestamp) || timestamp == 0) {
-        timestamp = time(NULL);//guarda en timestamp la hora actual en formato time_t 
+        timestamp = time(NULL);
     }
 
     if (timestamp == 0) {
@@ -136,7 +131,7 @@ static bool construir_payload_plano(char *payload,
         return false;
     }
 
-    int written = snprintf(payload, //snprintf devuelve un int de cuantos caracteres escribio 
+    int written = snprintf(payload,
                            payload_size,
                            "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\","
                            "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
@@ -147,8 +142,8 @@ static bool construir_payload_plano(char *payload,
                            (long long)timestamp,
                            estado);
 
-    return written > 0 && (size_t)written < payload_size;//verifica que escribio algo y que no se paso del tamaño del buffer
-}//devuelve true si esas dos cosas se cumplen 
+    return written > 0 && (size_t)written < payload_size;
+}
 
 /*
  * CAMBIO AGREGADO:
@@ -163,7 +158,6 @@ static bool publicar_evento_con_timestamp(Product producto,
 {
     if (estado == NULL || topic == NULL || topic[0] == '\0' || timestamp == 0) {
         ESP_LOGW(TAG, "Evento MQTT invalido, no se publica");
-        procesar_y_publicar_LOGI("WARN: evento MQTT invalido, no se publica");
         return false;
     }
 
@@ -172,32 +166,27 @@ static bool publicar_evento_con_timestamp(Product producto,
             logger_push(logger_local_mqtt, producto, timestamp, estado);
         } else {
             ESP_LOGW(TAG, "No hay logger local configurado");
-            procesar_y_publicar_LOGI("WARN: no hay logger local configurado");
         }
     }
 
     if (cliente_hivemq == NULL) {
         ESP_LOGW(TAG, "HiveMQ no conectado, no se publica ahora");
-        procesar_y_publicar_LOGI("WARN: HiveMQ no conectado, no se publica ahora");
         return false;
     }
 
     char payload[256];
     if (!construir_payload_plano(payload, sizeof(payload), DEVICE_ID, producto, timestamp, estado)) {
         ESP_LOGW(TAG, "No se pudo construir payload MQTT");
-        procesar_y_publicar_LOGI("WARN: no se pudo construir payload MQTT");
         return false;
     }
 
     int msg_id = esp_mqtt_client_publish(cliente_hivemq, topic, payload, 0, 1, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "No se pudo publicar mensaje MQTT");
-        procesar_y_publicar_LOGI("WARN: no se pudo publicar mensaje MQTT");
         return false;
     }
 
     ESP_LOGI(TAG, "Publicado en %s: %s", topic, payload);
-    procesar_y_publicar_LOGI("INFO: evento publicado por MQTT");
     return true;
 }
 
@@ -232,10 +221,8 @@ static bool guardar_pendiente(Product producto,
                  producto.name,
                  (unsigned long)producto.stock,
                  estado);
-        procesar_y_publicar_LOGI("INFO: evento guardado como pendiente");
     } else {
         ESP_LOGE(TAG, "No se pudo guardar evento pendiente");
-        procesar_y_publicar_LOGI("ERROR: no se pudo guardar evento pendiente");
     }
 
     return ok;
@@ -276,7 +263,6 @@ static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
         esp_mqtt_client_publish(client, TOPIC_TELEMETRY_HV, payload, 0, 1, 0);
         ESP_LOGI(TAG, "Catalogo inicial publicado [%d/%d]: %s",
                  i, (int)CATALOGO_SIZE, payload);
-        procesar_y_publicar_LOGI("INFO: catalogo inicial publicado");
 
         vTaskDelay(pdMS_TO_TICKS(200));
     }
@@ -309,7 +295,6 @@ static bool procesar_json_recibido(const char *mensaje)
     cJSON *json = cJSON_Parse(mensaje);
     if (json == NULL) {
         ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
-        procesar_y_publicar_LOGI("ERROR: formato de mensaje MQTT invalido");
         return false;
     }
 
@@ -322,7 +307,6 @@ static bool procesar_json_recibido(const char *mensaje)
 
     if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {
         ESP_LOGI(TAG, "Mensaje propio recibido, ignorado");
-        procesar_y_publicar_LOGI("INFO: mensaje propio recibido e ignorado");
         cJSON_Delete(json);
         return true;
     }
@@ -344,30 +328,20 @@ static bool procesar_json_recibido(const char *mensaje)
             logger_push(logger_recibido_mqtt, producto_recibido, timestamp, estado);
         } else {
             ESP_LOGW(TAG, "No hay logger recibido configurado");
-            procesar_y_publicar_LOGI("WARN: no hay logger recibido configurado");
         }
 
         ESP_LOGI(TAG, "Struct reconstruido -> ID: %s, Nombre: %s, Stock: %lu, Timestamp: %lld, Estado: %s",
                  producto_recibido.id, producto_recibido.name,
                  (unsigned long)producto_recibido.stock, (long long)timestamp, estado);
-        procesar_y_publicar_LOGI("INFO: producto recibido y reconstruido desde JSON");
 
 #if DEVICE_IS_LCD
-        if (fsm_mqtt_data_queue != NULL) {
-            HistoryEntry ev_data;
-            memset(&ev_data, 0, sizeof(ev_data));
-
-            ev_data.product   = producto_recibido;
-            ev_data.timestamp = timestamp;
-            safe_copy(ev_data.state, estado, sizeof(ev_data.state));
-
-            if (xQueueSend(fsm_mqtt_data_queue, &ev_data, pdMS_TO_TICKS(10)) != pdTRUE) {
-                ESP_LOGW(TAG, "fsm_mqtt_data_queue llena, dato descartado");
-                procesar_y_publicar_LOGI("WARN: cola MQTT de FSM llena, dato descartado");
-            }
-        } else {
-            ESP_LOGW(TAG, "fsm_mqtt_data_queue no inicializada");
-            procesar_y_publicar_LOGI("WARN: cola MQTT de FSM no inicializada");
+        /*
+         * La camara solo informa que producto escaneo.
+         * El stock del JSON recibido no es fuente de verdad.
+         * La FSM/product_db calcularan el stock real luego de la confirmacion.
+         */
+        if (!fsm_on_qr_detected(producto_recibido.id, producto_recibido.name)) {
+            ESP_LOGW(TAG, "No se pudo enviar QR recibido por MQTT a la FSM");
         }
 #endif
 
@@ -376,7 +350,6 @@ static bool procesar_json_recibido(const char *mensaje)
     }
 
     ESP_LOGE(TAG, "Error al procesar el formato del mensaje");
-    procesar_y_publicar_LOGI("ERROR: formato de mensaje MQTT invalido");
     cJSON_Delete(json);
     return false;
 }
@@ -410,7 +383,7 @@ bool mqtt_reenviar_a_thingsboard(HistoryEntry entry)
                                          entry.timestamp,
                                          true);
 }
-    
+                              
 
 // ─── Event handler HiveMQ ────────────────────────────────────────────────────
 
@@ -427,20 +400,17 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
     switch ((esp_mqtt_event_id_t)event_id) {
 
     case MQTT_EVENT_CONNECTED:
-        cliente_hivemq = client;
         ESP_LOGI(TAG, "HiveMQ: conectado como %s", DEVICE_ID);
-        procesar_y_publicar_LOGI("INFO: HiveMQ conectado");
+        cliente_hivemq = client;
 
         esp_mqtt_client_subscribe(client, "control/configuracion", 0);
 
 #if DEVICE_IS_LCD
         esp_mqtt_client_subscribe(client, TOPIC_COMUNICACION, 0);
         ESP_LOGI(TAG, "LCD: suscrito a %s", TOPIC_COMUNICACION);
-        procesar_y_publicar_LOGI("INFO: LCD suscrita al topic de comunicacion");
         publicar_catalogo_inicial(client);
 #else
         ESP_LOGI(TAG, "CAM: publicara en %s", TOPIC_COMUNICACION);
-        procesar_y_publicar_LOGI("INFO: CAM lista para publicar en topic de comunicacion");
 #endif
         ev = EV_MQTT_CONNECT_SUCCESS;
         post_fsm_event(ev); // la FSM usa este evento para ejecutar mqtt_handler_flush_pending()
@@ -449,7 +419,6 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
 
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "HiveMQ: desconectado");
-        procesar_y_publicar_LOGI("INFO: HiveMQ desconectado");
         cliente_hivemq = NULL;
         ev = EV_MQTT_CONNECT_FAILURE;
         post_fsm_event(ev);
@@ -466,20 +435,16 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
         memcpy(mensaje, event->data,  data_len);   mensaje[data_len]  = '\0';
 
         ESP_LOGI(TAG, "HiveMQ mensaje en topic: %s", topic);
-        procesar_y_publicar_LOGI("INFO: mensaje MQTT recibido en un topic");
         ESP_LOGI(TAG, "HiveMQ datos: %s", mensaje);
-        procesar_y_publicar_LOGI("INFO: datos MQTT recibidos");
 
 #if DEVICE_IS_LCD
         if (strcmp(topic, TOPIC_COMUNICACION) == 0) {
             procesar_json_recibido(mensaje);
         } else {
             ESP_LOGI(TAG, "Topic desconocido, ignorado");
-            procesar_y_publicar_LOGI("INFO: topic desconocido ignorado");
         }
 #else
         ESP_LOGW(TAG, "CAM recibio mensaje inesperado en topic: %s", topic);
-        procesar_y_publicar_LOGI("WARN: CAM recibio mensaje MQTT inesperado");
 #endif
         break;
     }
@@ -496,14 +461,10 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
 
     case MQTT_EVENT_ERROR:
         ESP_LOGE(TAG, "HiveMQ: error MQTT");
-        procesar_y_publicar_LOGI("ERROR: HiveMQ error MQTT");
         if (event->error_handle != NULL) {
             ESP_LOGE(TAG, "Tipo: %d", event->error_handle->error_type);
-            procesar_y_publicar_LOGI("ERROR: tipo de error MQTT");
             ESP_LOGE(TAG, "esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
-            procesar_y_publicar_LOGI("ERROR: error TLS en MQTT");
             ESP_LOGE(TAG, "socket errno: %d", event->error_handle->esp_transport_sock_errno);
-            procesar_y_publicar_LOGI("ERROR: socket errno en MQTT");
 
             if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
                 ev = EV_MQTT_CONNECT_FAILURE;
@@ -528,7 +489,6 @@ void iniciar_mqtt(void)
     esp_mqtt_client_handle_t hive_client = esp_mqtt_client_init(&hivemq_cfg);
     if (hive_client == NULL) {
         ESP_LOGE(TAG, "No se pudo crear cliente HiveMQ");
-        procesar_y_publicar_LOGI("ERROR: no se pudo crear cliente HiveMQ");
         return;
     }
     esp_mqtt_client_register_event(hive_client, ESP_EVENT_ANY_ID, mqtt_hivemq_event_handler, NULL);
@@ -545,18 +505,20 @@ static bool publicar_evento(Product producto, const char *estado)
     return publicar_evento_con_timestamp(producto, estado, topic, timestamp, true);
 }
 
-/*
- * Publica un producto valido con estado OK.
- *
- * CAMBIO DE LIMPIEZA:
- * Se vuelve al nombre original del equipo MQTT: procesar_y_publicar(...).
- * No se separa entre "QR" y "manual" porque hoy MQTT no necesita conocer
- * el origen del producto. La FSM puede haber confirmado un QR, una seleccion
- * manual o una cantidad, pero para MQTT el resultado es el mismo: producto OK.
- */
 bool procesar_y_publicar(Product producto)
 {
+#if DEVICE_IS_LCD
+    HistoryEntry entry;
+    memset(&entry, 0, sizeof(entry));
+
+    entry.product = producto;
+    entry.timestamp = timestamp_or_fallback();
+    safe_copy(entry.state, "OK", sizeof(entry.state));
+
+    return mqtt_reenviar_a_thingsboard(entry);
+#else
     return publicar_evento(producto, "OK");
+#endif
 }
 
 bool procesar_y_publicar_error(const char *mensaje_error)
@@ -625,19 +587,16 @@ bool mqtt_handler_flush_pending(void)
 {
     if (cliente_hivemq == NULL) {
         ESP_LOGW(TAG, "HiveMQ no conectado: no se puede reenviar cola pendiente");
-        procesar_y_publicar_LOGI("WARN: HiveMQ no conectado, no se puede reenviar cola pendiente");
         return false;
     }
 
     int count = pending_queue_count();
     if (count == 0) {
         ESP_LOGI(TAG, "No hay eventos pendientes para reenviar");
-        procesar_y_publicar_LOGI("INFO: no hay eventos pendientes para reenviar");
         return true;
     }
 
     ESP_LOGI(TAG, "Reenviando %d evento(s) pendiente(s)", count);
-    procesar_y_publicar_LOGI("INFO: reenviando eventos pendientes");
 
     while (pending_queue_count() > 0) {
         PendingMqttEvent ev_pendiente;
@@ -645,7 +604,6 @@ bool mqtt_handler_flush_pending(void)
 
         if (!pending_queue_peek(&ev_pendiente)) {
             ESP_LOGW(TAG, "No se pudo leer el proximo evento pendiente");
-            procesar_y_publicar_LOGI("WARN: no se pudo leer el proximo evento pendiente");
             return false;
         }
 
@@ -655,18 +613,15 @@ bool mqtt_handler_flush_pending(void)
                                            ev_pendiente.timestamp,
                                            false)) {
             ESP_LOGW(TAG, "No se pudo publicar el pendiente mas viejo. Se corta flush");
-            procesar_y_publicar_LOGI("WARN: no se pudo publicar pendiente, se corta flush");
             return false;
         }
 
         if (!pending_queue_pop()) {
             ESP_LOGW(TAG, "Publicado pendiente, pero no se pudo quitar de NVS");
-            procesar_y_publicar_LOGI("WARN: pendiente publicado pero no se pudo quitar de NVS");
             return false;
         }
     }
 
     ESP_LOGI(TAG, "Todos los eventos pendientes fueron reenviados");
-    procesar_y_publicar_LOGI("INFO: todos los eventos pendientes fueron reenviados");
     return true;
 }
