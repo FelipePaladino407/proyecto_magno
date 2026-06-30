@@ -23,7 +23,7 @@
 
 static const char *TAG = "MQTT_APP";
 extern QueueHandle_t fsm_event_queue;
-QueueHandle_t fsm_mqtt_data_queue = NULL;
+QueueHandle_t fsm_mqtt_data_queue;
 
 static esp_mqtt_client_handle_t cliente_hivemq = NULL;
 
