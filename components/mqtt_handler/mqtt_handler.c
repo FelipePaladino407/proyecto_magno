@@ -382,11 +382,11 @@ static bool procesar_json_recibido(const char *mensaje)
 }
 
 /*
- * Llamada por la FSM despues de actualizar el stock real en la hash table
- * (ver case EV_MQTT_DATA en fsm.c). Si la publicacion falla porque HiveMQ
- * no esta conectado, se guarda en pending_queue igual que cualquier otro
- * evento, para que mqtt_handler_flush_pending() lo reenvie al reconectar.
- */bool mqtt_reenviar_a_thingsboard(HistoryEntry entry)
+ * Publica hacia ThingsBoard usando SIEMPRE el stock real almacenado en product_db.
+ * La FSM llama a procesar_y_publicar() despues de actualizar stock; desde ahi se
+ * arma el HistoryEntry y se entra a esta funcion.
+ */
+bool mqtt_reenviar_a_thingsboard(HistoryEntry entry)
 {
     const char *estado = entry.state[0] != '\0' ? entry.state : "OK";
 
@@ -394,47 +394,23 @@ static bool procesar_json_recibido(const char *mensaje)
         entry.timestamp = timestamp_or_fallback();
     }
 
-    char payload_tb[256];
+    Product producto_actual;
+    memset(&producto_actual, 0, sizeof(producto_actual));
 
-    snprintf(payload_tb, sizeof(payload_tb),
-             "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\","
-             "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
-             DEVICE_ID,
-             entry.product.id,
-             entry.product.name,
-             (unsigned long)entry.product.stock,
-             (long long)entry.timestamp,
-             estado);
-
-    if (cliente_hivemq == NULL) {
-        ESP_LOGW(TAG, "HiveMQ no conectado, se guarda reenvio a ThingsBoard como pendiente");
-        procesar_y_publicar_LOGI("WARN: HiveMQ no conectado, reenvio a ThingsBoard guardado pendiente");
-        return guardar_pendiente(entry.product,
-                                 estado,
-                                 TOPIC_TELEMETRY_HV,
-                                 entry.timestamp);
+    if (!product_db_find_by_id(entry.product.id, &producto_actual)) {
+        ESP_LOGW(TAG,
+                 "No se pudo reenviar a ThingsBoard: producto no encontrado en product_db -> ID=%s",
+                 entry.product.id);
+        return false;
     }
 
-    int msg_id = esp_mqtt_client_publish(cliente_hivemq,
+    return publicar_evento_con_timestamp(producto_actual,
+                                         estado,
                                          TOPIC_TELEMETRY_HV,
-                                         payload_tb,
-                                         0,
-                                         1,
-                                         0);
-
-    if (msg_id < 0) {
-        ESP_LOGW(TAG, "Fallo reenvio a ThingsBoard, se guarda pendiente");
-        procesar_y_publicar_LOGI("WARN: fallo reenvio a ThingsBoard, guardado pendiente");
-        return guardar_pendiente(entry.product,
-                                 estado,
-                                 TOPIC_TELEMETRY_HV,
-                                 entry.timestamp);
-    }
-
-    ESP_LOGI(TAG, "Reenvio a ThingsBoard con stock actualizado: %s", payload_tb);
-    procesar_y_publicar_LOGI("INFO: reenvio a ThingsBoard con stock actualizado");
-    return true;
+                                         entry.timestamp,
+                                         true);
 }
+    
 
 // ─── Event handler HiveMQ ────────────────────────────────────────────────────
 
