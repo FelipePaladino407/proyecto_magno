@@ -13,5 +13,6 @@ idf_component_register(SRCS
                     unit_test
                     product_db
                     pending_queue
+                    touchpad
                     
                     INCLUDE_DIRS ".")

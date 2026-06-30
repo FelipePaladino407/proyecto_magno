@@ -18,6 +18,7 @@
 #include "input_handler.h"
 #include "product_db.h"
 #include "pending_queue.h"
+#include "touchpad.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -217,6 +218,8 @@ void app_main(void)
     logger_init(&logger_local, "local");
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
+
+    touchpad_init();
 
     xTaskCreate(&network_services_task, "NETWORK_SERVICES", 4096, NULL, 1, NULL);
 
