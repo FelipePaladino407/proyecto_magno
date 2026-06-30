@@ -1,6 +1,8 @@
 #include "qr_handler.h"
 #include "qr_handler_config.h"
 #include <string.h>           // memcpy
+#include <stdio.h>
+#include "fsm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"    // xTaskCreate, vTaskDelay, vTaskDelete
 #include "esp_log.h"          // ESP_LOGI, ESP_LOGE
@@ -37,12 +39,37 @@ static void qr_scan_task(void *pvParameters)
             struct quirc_data data;
             quirc_extract(qr, i, &code_struct);
             if (quirc_decode(&code_struct, &data) == QUIRC_SUCCESS) {
-                ESP_LOGI(TAG, "QR: %s", (char *)data.payload);
-                vTaskDelay(pdMS_TO_TICKS(3000));  // Espera 3 segundos antes de continuar para evitar lecturas repetidas
+                const char *raw_payload = (const char *)data.payload;
+
+                char id[64] = {0};
+                char product_name[64] = {0};
+
+                const char *sep = strchr(raw_payload, '|');
+                if (sep != NULL) {
+                    strncpy(id, raw_payload, sep - raw_payload);
+                    strncpy(product_name, sep + 1, sizeof(product_name) - 1);
+                } else {
+                    strncpy(id, raw_payload, sizeof(id) - 1);
+                }
+
+                // JSON para el código
+                char id_json[64] = {0};
+                snprintf(id_json, sizeof(id_json), "{\"codigo\":\"%s\"}", id);
+
+                // JSON para el nombre
+                char name_json[96] = {0};
+                snprintf(name_json, sizeof(name_json), "{\"nombre\":\"%s\"}", product_name);
+
+                // Solo para debug, no es tan importante
+                char json_payload[160] = {0};
+                snprintf(json_payload, sizeof(json_payload),
+                        "{\"codigo\":\"%s\",\"nombre\":\"%s\"}", id, product_name);
+                ESP_LOGI(TAG, "QR completo: %s", json_payload);
+
+                fsm_on_qr_detected(id_json, name_json);
+                vTaskDelay(pdMS_TO_TICKS(3000));
             }
         }
-
-        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
