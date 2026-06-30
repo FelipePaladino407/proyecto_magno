@@ -17,6 +17,7 @@
 
 static const char *TAG = "MQTT_APP";
 extern QueueHandle_t fsm_event_queue;
+QueueHandle_t fsm_mqtt_data_queue = NULL; 
 
 static esp_mqtt_client_handle_t cliente_hivemq = NULL;
 
@@ -25,7 +26,7 @@ static Logger *logger_recibido_mqtt = NULL;
 
 ///////////////////////////////
 //Parametros de conexión MQTT//
-///////////////////////////////
+/////////////////////////'//////
 
 // En la CAM poner:
 // static const char *DEVICE_ID = "CAM_01";
@@ -41,8 +42,9 @@ static const char *DEVICE_ID = "CAM_01";
 static const char *HIVEMQ_URI         = "mqtt://broker.hivemq.com:1883";
 static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";      // CAM → LCD + ThingsBoard Integration
 static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry"; // LCD → ThingsBoard Integration
+static const char *TOPIC_LOGI = "ucuiot/magno/x7k2/LOGI";
 
-#define DEVICE_IS_LCD 0
+#define DEVICE_IS_LCD 1
 
 static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
 {
@@ -142,35 +144,20 @@ static bool procesar_json_recibido(const char *mensaje)
         ESP_LOGI(TAG, "Struct reconstruido -> ID: %s, Nombre: %s, Stock: %lu, Timestamp: %lld, Estado: %s",
                  producto_recibido.id, producto_recibido.name,
                  (unsigned long)producto_recibido.stock, (long long)timestamp, estado);
-
 #if DEVICE_IS_LCD
-        // LCD reenvía al topic de telemetría para que ThingsBoard Integration lo lea.
-        // Se conserva el device_id original que vino en el JSON recibido.
-        // Así ThingsBoard puede identificar desde qué cámara llegó el evento,
-        // en vez de recibir siempre el DEVICE_ID de la LCD.
-        if (cliente_hivemq != NULL) {
-            char payload_tb[256];
+        if (fsm_mqtt_data_queue != NULL) {
+            HistoryEntry ev_data;
+            memset(&ev_data, 0, sizeof(ev_data));
 
-            const char *device_id_origen = "UNKNOWN";
+            ev_data.product   = producto_recibido;
+            ev_data.timestamp = timestamp;
+            strncpy(ev_data.state, estado, sizeof(ev_data.state) - 1);
 
-            if (cJSON_IsString(device_id)) {
-                device_id_origen = device_id->valuestring;
+            if (xQueueSend(fsm_mqtt_data_queue, &ev_data, pdMS_TO_TICKS(10)) != pdTRUE) {
+                ESP_LOGW(TAG, "fsm_mqtt_data_queue llena, dato descartado");
             }
-
-            snprintf(payload_tb, sizeof(payload_tb),
-                     "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\","
-                     "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
-                     device_id_origen,
-                     producto_recibido.id,
-                     producto_recibido.name,
-                     (unsigned long)producto_recibido.stock,
-                     (long long)timestamp,
-                     estado);
-
-            esp_mqtt_client_publish(cliente_hivemq, TOPIC_TELEMETRY_HV, payload_tb, 0, 1, 0);
-            ESP_LOGI(TAG, "LCD reenvio a ThingsBoard via HiveMQ: %s", payload_tb);
         } else {
-            ESP_LOGW(TAG, "HiveMQ no conectado, no se reenvio");
+            ESP_LOGW(TAG, "fsm_mqtt_data_queue no inicializada");
         }
 #endif
 
@@ -182,7 +169,26 @@ static bool procesar_json_recibido(const char *mensaje)
     cJSON_Delete(json);
     return false;
 }
+void mqtt_reenviar_a_thingsboard(HistoryEntry entry)
+{
+    if (cliente_hivemq == NULL) {
+        ESP_LOGW(TAG, "HiveMQ no conectado, no se reenvio a ThingsBoard");
+        return;
+    }
 
+    char payload_tb[256];
+    snprintf(payload_tb, sizeof(payload_tb),
+             "{\"id\":\"%s\",\"producto\":\"%s\","
+             "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
+             entry.product.id,
+             entry.product.name,
+             (unsigned long)entry.product.stock,
+             (long long)entry.timestamp,
+             entry.state);
+
+    esp_mqtt_client_publish(cliente_hivemq, TOPIC_TELEMETRY_HV, payload_tb, 0, 1, 0);
+    ESP_LOGI(TAG, "Reenvio a ThingsBoard con stock actualizado: %s", payload_tb);
+}
 // ─── Event handler HiveMQ ────────────────────────────────────────────────────
 
 static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
@@ -331,6 +337,12 @@ static bool publicar_evento(Product producto, const char *estado)
 bool procesar_y_publicar(Product producto_escaneado)
 {
     return publicar_evento(producto_escaneado, "OK");
+}
+
+bool procesar_y_publicar_LOGI(char *LOGI)
+{
+
+    return esp_mqtt_client_publish(cliente_hivemq, TOPIC_LOGI, *LOGI, 0, 1, 0);
 }
 
 bool procesar_y_publicar_error(const char *mensaje_error)
