@@ -18,18 +18,24 @@
 #include "input_handler.h"
 #include "product_db.h"
 #include "pending_queue.h"
+#include "touchpad.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
 static const char *TAG = "MAIN";
 
+bool OK;
+
 QueueHandle_t fsm_event_queue = NULL;
 
 static Logger logger_local;
 static Logger logger_recibido;
 
-#define ENABLE_FAKE_QR_DEMO 1
+#define ENABLE_FAKE_QR_DEMO 0
+
+#define TOUCHPAD_NUM_BUTTONS 4
+#define POLL_INTERVAL 1000 /*   50 ms entre lecturas    */
 
 static void lcd_display_product_cb(const Product *product)
 {
@@ -173,6 +179,53 @@ static void load_catalog(void)
              CATALOGO_SIZE);
 }
 
+static void touchpad_task(void *pvParameters)
+{
+    (void)pvParameters;
+    int counter = 0;
+while (1) {
+    bool was_pressed[TOUCHPAD_NUM_BUTTONS] = {false};
+            for (uint8_t i = 0; i < TOUCHPAD_NUM_BUTTONS; i++){
+            bool pressed = touchpad_is_pressed(i);
+            
+            if (pressed && !was_pressed[i]) {
+
+                switch (i){
+
+                    case 0:
+                    counter++;
+                    ESP_LOGI(TAG, "Boton 0 presionado. Contador: %d", counter);
+                    fsm_set_selected_quantity(counter);
+                    break;
+
+                    case 1:
+                    OK = true;
+                    ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
+
+                    break;
+
+                    case 2:
+                    if (counter > 1) {
+                        counter--;
+                        fsm_set_selected_quantity(counter);
+                    }
+                    ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
+                    break;
+
+                    case 3:
+                    OK = false;
+                    ESP_LOGI(TAG, "Boton 3 presionado. OK: %d", OK);
+                    break;
+
+                }
+            }
+            was_pressed[i] = pressed;
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    }
+}
+
+
 void app_main(void)
 {
     fsm_event_queue = xQueueCreate(20, sizeof(EventType));
@@ -218,12 +271,16 @@ void app_main(void)
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
+    touchpad_init();
+
     xTaskCreate(&network_services_task, "NETWORK_SERVICES", 4096, NULL, 1, NULL);
 
 #if ENABLE_FAKE_QR_DEMO
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
 #endif
 
+    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
+    
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
