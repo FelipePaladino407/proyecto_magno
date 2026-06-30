@@ -25,7 +25,6 @@
 
 static const char *TAG = "MAIN";
 
-int counter = 1;
 bool OK;
 
 QueueHandle_t fsm_event_queue = NULL;
@@ -183,6 +182,7 @@ static void load_catalog(void)
 static void touchpad_task(void *pvParameters)
 {
     (void)pvParameters;
+    int counter = 0;
 while (1) {
     bool was_pressed[TOUCHPAD_NUM_BUTTONS] = {false};
             for (uint8_t i = 0; i < TOUCHPAD_NUM_BUTTONS; i++){
@@ -195,16 +195,19 @@ while (1) {
                     case 0:
                     counter++;
                     ESP_LOGI(TAG, "Boton 0 presionado. Contador: %d", counter);
+                    fsm_set_selected_quantity(counter);
                     break;
 
                     case 1:
                     OK = true;
                     ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
+
                     break;
 
                     case 2:
                     if (counter > 1) {
                         counter--;
+                        fsm_set_selected_quantity(counter);
                     }
                     ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
                     break;
