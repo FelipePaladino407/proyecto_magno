@@ -25,8 +25,6 @@
 
 static const char *TAG = "MAIN";
 
-bool OK;
-
 QueueHandle_t fsm_event_queue = NULL;
 
 static Logger logger_local;
@@ -179,7 +177,7 @@ static void load_catalog(void)
              CATALOGO_SIZE);
 }
 
-static void touchpad_task(void *pvParameters)
+static void touchpad_task(void *pvParameters) /*    Task que lee inputs del touchpad y envia eventos al fsm*/
 {
     (void)pvParameters;
     int counter = 0;
@@ -193,22 +191,21 @@ while (1) {
 
                 switch (i){
 
-                    case 0:
+                    case 0:     /*  Boton VOL_UP, incrementa el contador*/
                     counter++;
                     ESP_LOGI(TAG, "Boton 0 presionado. Contador: %d", counter);
                     event = EV_BTN_UP;
                     xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
                     break;
 
-                    case 1:
-                    OK = true;
+                    case 1:     /*  Boton PLAY/PAUSE, confirma que se quiere agregar el producto*/
                     event = EV_BTN_CONFIRM;
                     xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
                     ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
 
                     break;
 
-                    case 2:
+                    case 2:    /*  Boton VOL_DOWN, decrementa el contador si es mayor que 1 */
                     if (counter > 1) {
                         counter--;
                         event = EV_BTN_DOWN;
@@ -217,8 +214,7 @@ while (1) {
                     ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
                     break;
 
-                    case 3:
-                    OK = false;
+                    case 3:    /*  Boton RECORD, indica que no se quiere agregar el producto */
                     event = EV_BTN_CANCEL;
                     xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
                     ESP_LOGI(TAG, "Boton 3 presionado. OK: %d", OK);
@@ -278,7 +274,7 @@ void app_main(void)
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
-    touchpad_init();
+    touchpad_init(); /* Inicializa el touchpad */
 
     xTaskCreate(&network_services_task, "NETWORK_SERVICES", 4096, NULL, 1, NULL);
 
@@ -286,7 +282,7 @@ void app_main(void)
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
 #endif
 
-    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
+    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL); /* Crea la task para leer el touchpad */
     
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));
