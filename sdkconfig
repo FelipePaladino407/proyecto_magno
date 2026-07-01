@@ -760,43 +760,27 @@ CONFIG_BOOT_ROM_LOG_ALWAYS_ON=y
 #
 # default:
 # CONFIG_ESPTOOLPY_NO_STUB is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHMODE_QIO is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHMODE_QOUT is not set
-# default:
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
-# default:
 # CONFIG_ESPTOOLPY_FLASHMODE_DOUT is not set
 # default:
 CONFIG_ESPTOOLPY_FLASH_SAMPLE_MODE_STR=y
 # default:
 CONFIG_ESPTOOLPY_FLASHMODE="dio"
-# default:
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
-# default:
 # CONFIG_ESPTOOLPY_FLASHFREQ_40M is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHFREQ_26M is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHFREQ_20M is not set
 # default:
 CONFIG_ESPTOOLPY_FLASHFREQ="80m"
-# default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_1MB is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_2MB is not set
-# default:
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-# default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_8MB is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_16MB is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_32MB is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_64MB is not set
-# default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_128MB is not set
 # default:
 CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
@@ -821,25 +805,24 @@ CONFIG_ESPTOOLPY_MONITOR_BAUD=115200
 #
 # Partition Table
 #
-# default:
 # CONFIG_PARTITION_TABLE_SINGLE_APP is not set
-# default:
 # CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE is not set
-# default:
 # CONFIG_PARTITION_TABLE_TWO_OTA is not set
-# default:
 # CONFIG_PARTITION_TABLE_TWO_OTA_LARGE is not set
-# default:
 CONFIG_PARTITION_TABLE_CUSTOM=y
-# default:
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # default:
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
-# default:
 CONFIG_PARTITION_TABLE_OFFSET=0x8000
-# default:
 CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
+
+#
+# Proyecto Magno
+#
+CONFIG_PROYECTO_DEVICE_ROLE_LCD=y
+# CONFIG_PROYECTO_DEVICE_ROLE_CAM is not set
+# end of Proyecto Magno
 
 #
 # Compiler options
@@ -3041,15 +3024,10 @@ CONFIG_LV_COLOR_DEPTH=16
 #
 # Memory Settings
 #
-# default:
 CONFIG_LV_USE_BUILTIN_MALLOC=y
-# default:
 # CONFIG_LV_USE_CLIB_MALLOC is not set
-# default:
 # CONFIG_LV_USE_MICROPYTHON_MALLOC is not set
-# default:
 # CONFIG_LV_USE_RTTHREAD_MALLOC is not set
-# default:
 # CONFIG_LV_USE_CUSTOM_MALLOC is not set
 # default:
 CONFIG_LV_USE_BUILTIN_STRING=y
@@ -3064,9 +3042,7 @@ CONFIG_LV_USE_BUILTIN_SPRINTF=y
 # default:
 # CONFIG_LV_USE_CUSTOM_SPRINTF is not set
 CONFIG_LV_MEM_SIZE_KILOBYTES=16
-# default:
 CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=0
-# default:
 CONFIG_LV_MEM_ADR=0x0
 # end of Memory Settings
 
@@ -3738,6 +3714,7 @@ CONFIG_LV_BUILD_DEMOS=y
 # end of LVGL configuration
 # end of Component config
 
+# default:
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set
 
 # Deprecated options for backward compatibility
