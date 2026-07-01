@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 
+#include "device_role.h"
 #include "qr_handler.h"
 #include "fsm.h"
 #include "logger.h"
@@ -25,24 +26,46 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 static const char *TAG = "MAIN";
 
+/*
+ * En rol CAM queda NULL a proposito: la placa de camara no levanta la FSM
+ * principal ni debe recibir eventos de touch/LCD.
+ */
 QueueHandle_t fsm_event_queue = NULL;
 
 static Logger logger_local;
 static Logger logger_recibido;
 
 /*
- * Demo mixta:
- * - La camara se simula con tres entradas fake.
+ * Demo mixta para la placa LCD:
+ * - La camara se simula con entradas fake.
  * - El touch NO se simula: confirmar, subir, bajar y cancelar se hacen
  *   con los botones touch reales.
  * - La LCD es real: la FSM llama a lcd_manager mediante callbacks.
  */
 #define ENABLE_FAKE_QR_DEMO 0
-#define CAMERA 1
 
+#if DEVICE_IS_CAM
+static void safe_copy_main(char *dest, const char *src, size_t dest_size)
+{
+    if (dest == NULL || dest_size == 0) {
+        return;
+    }
+
+    if (src == NULL) {
+        dest[0] = '\0';
+        return;
+    }
+
+    strncpy(dest, src, dest_size - 1);
+    dest[dest_size - 1] = '\0';
+}
+#endif
+
+#if DEVICE_IS_LCD
 static void lcd_show_waiting_cb(void)
 {
     lcd_show_waiting();
@@ -105,6 +128,7 @@ static bool mqtt_flush_pending_cb(void)
 {
     return mqtt_handler_flush_pending();
 }
+#endif
 
 static void network_services_task(void *pvParameters)
 {
@@ -126,6 +150,7 @@ static void network_services_task(void *pvParameters)
     }
 }
 
+#if DEVICE_IS_LCD
 static void post_touch_event(EventType event)
 {
     if (!fsm_post_event(event)) {
@@ -196,11 +221,6 @@ static void fake_qr_demo_task(void *pvParameters)
     ESP_LOGI(TAG, "[DEMO] Camara fake enviada. Ahora usen el touch real:");
     ESP_LOGI(TAG, "[DEMO] CONFIRM para aceptar producto, UP/DOWN para cantidad, CONFIRM para publicar, CANCEL para cancelar");
 
-    /*
-     * No enviamos eventos fake de touch.
-     * Esperamos a que el usuario termine el flujo con el touch real
-     * antes de disparar el siguiente caso de camara fake.
-     */
     demo_wait_until_fsm_finishes_flow();
 
     ESP_LOGI(TAG, "[FAKE_CAMERA] QR no registrado: PROD999/Galletas");
@@ -216,7 +236,7 @@ static void fake_qr_demo_task(void *pvParameters)
 }
 #endif
 
-void fsm_task(void *pvParameters)
+static void fsm_task(void *pvParameters)
 {
     (void)pvParameters;
 
@@ -269,8 +289,10 @@ static void touchpad_task(void *pvParameters)
     }
 }
 
-void app_main(void)
+static void app_lcd_init(void)
 {
+    ESP_LOGI(TAG, "Inicializando rol LCD + TOUCH");
+
     fsm_event_queue = xQueueCreate(20, sizeof(EventType));
     if (fsm_event_queue == NULL) {
         ESP_LOGE(TAG, "CRITICAL: Failed to create FSM Event Queue");
@@ -312,6 +334,54 @@ void app_main(void)
      */
 //    button_int_config();
 
+    touchpad_init();
+    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
+
+#if ENABLE_FAKE_QR_DEMO
+    xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
+#endif
+}
+#endif // DEVICE_IS_LCD
+
+#if DEVICE_IS_CAM
+static void camera_on_qr_detected(const char *id, const char *product_name)
+{
+    Product product;
+    memset(&product, 0, sizeof(product));
+
+    safe_copy_main(product.id, id, sizeof(product.id));
+    safe_copy_main(product.name, product_name, sizeof(product.name));
+    product.stock = 0;
+
+    if (product.id[0] == '\0') {
+        ESP_LOGW(TAG, "QR detectado sin ID valido");
+        (void)procesar_y_publicar_error("QR sin ID valido");
+        return;
+    }
+
+    ESP_LOGI(TAG,
+             "CAM QR -> id=%s | nombre=%s. Publicando scan MQTT o guardando pendiente",
+             product.id,
+             product.name);
+
+    if (!procesar_y_publicar(product)) {
+        if (!mqtt_handler_store_pending(product)) {
+            ESP_LOGE(TAG, "No se pudo guardar scan pendiente de camara");
+        }
+    }
+}
+
+static void app_camera_init(void)
+{
+    ESP_LOGI(TAG, "Inicializando rol CAMARA QR");
+
+    qr_handler_set_callback(camera_on_qr_detected);
+    qr_handler_init();
+}
+#endif // DEVICE_IS_CAM
+
+static void app_network_init(void)
+{
     rgb_led_init();
 
     ESP_ERROR_CHECK(nvs_storage_init());
@@ -326,19 +396,32 @@ void app_main(void)
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
-    touchpad_init();
-
     xTaskCreate(&network_services_task, "NETWORK_SERVICES", 4096, NULL, 1, NULL);
+}
 
-#if ENABLE_FAKE_QR_DEMO
-    xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
+void app_main(void)
+{
+    ESP_LOGI(TAG, "Arrancando Proyecto Magno con DEVICE_ROLE=%d", DEVICE_ROLE);
+
+#if DEVICE_IS_LCD
+    /*
+     * En LCD primero se levanta la FSM para que los eventos WiFi/MQTT no
+     * lleguen antes de que exista fsm_event_queue.
+     */
+    app_lcd_init();
+    app_network_init();
+#elif DEVICE_IS_CAM
+    /*
+     * En CAM primero se inicializa NVS/pending_queue/WiFi; asi cualquier QR
+     * escaneado antes de MQTT queda persistido correctamente.
+     */
+    app_network_init();
+    app_camera_init();
+#else
+    ESP_LOGE(TAG, "DEVICE_ROLE invalido: %d", DEVICE_ROLE);
 #endif
-
-    qr_handler_init();
-    // xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
-

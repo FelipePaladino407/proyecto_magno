@@ -2,7 +2,6 @@
 #include "qr_handler_config.h"
 #include <string.h>           // memcpy
 #include <stdio.h>
-#include "fsm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"    // xTaskCreate, vTaskDelay, vTaskDelete
 #include "esp_log.h"          // ESP_LOGI, ESP_LOGE
@@ -10,6 +9,13 @@
 #include "quirc.h"            // quirc_new, quirc_resize, quirc_decode, etc.
 
 static const char *TAG = "qr_handler";
+
+static qr_detected_callback_t s_qr_callback = NULL;
+
+void qr_handler_set_callback(qr_detected_callback_t callback)
+{
+    s_qr_callback = callback;
+}
 
 static void qr_scan_task(void *pvParameters)
 {
@@ -81,7 +87,11 @@ static void qr_scan_task(void *pvParameters)
                         "{\"id\":\"%s\",\"name\":\"%s\"}", id, product_name);
                 ESP_LOGI(TAG, "QR completo: %s", json_payload);
 
-                fsm_on_qr_detected(id, product_name);
+                if (s_qr_callback != NULL) {
+                    s_qr_callback(id, product_name);
+                } else {
+                    ESP_LOGW(TAG, "QR detectado pero no hay callback registrado");
+                }
                 vTaskDelay(pdMS_TO_TICKS(3000));
             }
         }

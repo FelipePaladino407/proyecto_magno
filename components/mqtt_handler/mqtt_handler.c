@@ -1,5 +1,7 @@
 #include "mqtt_handler.h"
 
+#include "device_role.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -29,13 +31,96 @@ static esp_mqtt_client_handle_t cliente_hivemq = NULL;
 static Logger *logger_local_mqtt    = NULL;
 static Logger *logger_recibido_mqtt = NULL;
 
+#if DEVICE_IS_LCD
+#define MQTT_SCAN_QUEUE_LENGTH 10
+#define MQTT_SCAN_DISPATCH_DELAY_MS 200
+
+static QueueHandle_t s_scan_queue = NULL;
+static TaskHandle_t s_scan_dispatch_task_handle = NULL;
+
+static void scan_dispatch_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    Product scan;
+
+    while (true) {
+        if (xQueueReceive(s_scan_queue, &scan, portMAX_DELAY) != pdPASS) {
+            continue;
+        }
+
+        bool delivered = false;
+
+        while (!delivered) {
+            if (fsm_get_current_state() == STATE_IDLE) {
+                delivered = fsm_on_qr_detected(scan.id, scan.name);
+
+                if (delivered) {
+                    ESP_LOGI(TAG,
+                             "Scan MQTT entregado a FSM -> ID=%s | Nombre=%s",
+                             scan.id,
+                             scan.name);
+                    break;
+                }
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(MQTT_SCAN_DISPATCH_DELAY_MS));
+        }
+    }
+}
+
+static bool ensure_scan_dispatcher(void)
+{
+    if (s_scan_queue == NULL) {
+        s_scan_queue = xQueueCreate(MQTT_SCAN_QUEUE_LENGTH, sizeof(Product));
+        if (s_scan_queue == NULL) {
+            ESP_LOGE(TAG, "No se pudo crear cola local de scans MQTT");
+            return false;
+        }
+    }
+
+    if (s_scan_dispatch_task_handle == NULL) {
+        BaseType_t ok = xTaskCreate(&scan_dispatch_task,
+                                    "MQTT_SCAN_DISPATCH",
+                                    4096,
+                                    NULL,
+                                    1,
+                                    &s_scan_dispatch_task_handle);
+        if (ok != pdPASS) {
+            ESP_LOGE(TAG, "No se pudo crear task MQTT_SCAN_DISPATCH");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool enqueue_scan_for_fsm(const Product *scan)
+{
+    if (scan == NULL || scan->id[0] == '\0') {
+        return false;
+    }
+
+    if (!ensure_scan_dispatcher()) {
+        return false;
+    }
+
+    if (xQueueSend(s_scan_queue, scan, pdMS_TO_TICKS(100)) != pdPASS) {
+        ESP_LOGW(TAG,
+                 "Cola local de scans llena. Se descarta scan -> ID=%s | Nombre=%s",
+                 scan->id,
+                 scan->name);
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Scan MQTT encolado para FSM -> ID=%s | Nombre=%s", scan->id, scan->name);
+    return true;
+}
+#endif
+
 ///////////////////////////////
 //Parametros de conexion MQTT//
 ///////////////////////////////
-#ifndef DEVICE_IS_LCD
-#define DEVICE_IS_LCD 0
-#endif
-
 #if DEVICE_IS_LCD
 static const char *DEVICE_ID = "LCD_01";
 #else
@@ -63,10 +148,11 @@ static void safe_copy(char *dest, const char *src, size_t dest_size)
     dest[dest_size - 1] = '\0';
 }
 
+#if DEVICE_IS_LCD
 /*
  * CAMBIO AGREGADO:
  * evita repetir xQueueSend y, sobre todo, evita crashear si la cola FSM aun no existe.
- * Se mantiene porque la FSM sigue usando EV_MQTT_CONNECT_SUCCESS para hacer flush_pending.
+ * Se mantiene porque la FSM LCD sigue usando EV_MQTT_CONNECT_SUCCESS para hacer flush_pending.
  */
 static void post_fsm_event(EventType ev)
 {
@@ -79,6 +165,7 @@ static void post_fsm_event(EventType ev)
         ESP_LOGW(TAG, "No se pudo enviar evento MQTT a FSM: %d", ev);
     }
 }
+#endif
 
 /*
  * CAMBIO AGREGADO:
@@ -228,6 +315,7 @@ static bool guardar_pendiente(Product producto,
     return ok;
 }
 
+#if DEVICE_IS_LCD
 static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
 {
     char payload[512];
@@ -267,6 +355,7 @@ static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
+#endif
 
 void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido)
 {
@@ -284,6 +373,7 @@ void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido)
  * Esto reemplaza el reenvio directo que tenia el doc 4 (que mandaba el
  * stock del JSON recibido, sin pasar por la FSM).
  */
+#if DEVICE_IS_LCD
 static bool procesar_json_recibido(const char *mensaje)
 {
     Product producto_recibido;
@@ -339,9 +429,13 @@ static bool procesar_json_recibido(const char *mensaje)
          * La camara solo informa que producto escaneo.
          * El stock del JSON recibido no es fuente de verdad.
          * La FSM/product_db calcularan el stock real luego de la confirmacion.
+         *
+         * No llamamos directo a fsm_on_qr_detected() porque si llegan varios
+         * scans juntos mientras la FSM esta ocupada se perderian. Primero se
+         * encolan y una task los entrega cuando la FSM vuelve a IDLE.
          */
-        if (!fsm_on_qr_detected(producto_recibido.id, producto_recibido.name)) {
-            ESP_LOGW(TAG, "No se pudo enviar QR recibido por MQTT a la FSM");
+        if (!enqueue_scan_for_fsm(&producto_recibido)) {
+            ESP_LOGW(TAG, "No se pudo encolar QR recibido por MQTT para la FSM");
         }
 #endif
 
@@ -353,6 +447,7 @@ static bool procesar_json_recibido(const char *mensaje)
     cJSON_Delete(json);
     return false;
 }
+#endif
 
 /*
  * Publica hacia ThingsBoard usando SIEMPRE el stock real almacenado en product_db.
@@ -395,7 +490,9 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
 
     esp_mqtt_event_handle_t event = event_data;
     esp_mqtt_client_handle_t client = event->client;
+#if DEVICE_IS_LCD
     EventType ev;
+#endif
 
     switch ((esp_mqtt_event_id_t)event_id) {
 
@@ -408,20 +505,25 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
 #if DEVICE_IS_LCD
         esp_mqtt_client_subscribe(client, TOPIC_COMUNICACION, 0);
         ESP_LOGI(TAG, "LCD: suscrito a %s", TOPIC_COMUNICACION);
+        ensure_scan_dispatcher();
         publicar_catalogo_inicial(client);
+
+        ev = EV_MQTT_CONNECT_SUCCESS;
+        post_fsm_event(ev); // la FSM LCD usa este evento para ejecutar mqtt_handler_flush_pending()
 #else
         ESP_LOGI(TAG, "CAM: publicara en %s", TOPIC_COMUNICACION);
+        mqtt_handler_flush_pending(); // la CAM no levanta FSM; reenvia scans pendientes directo
 #endif
-        ev = EV_MQTT_CONNECT_SUCCESS;
-        post_fsm_event(ev); // la FSM usa este evento para ejecutar mqtt_handler_flush_pending()
         esp_mqtt_client_publish(client, "ESP_CONNECTED", DEVICE_ID, 0, 1, 0);
         break;
 
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "HiveMQ: desconectado");
         cliente_hivemq = NULL;
+#if DEVICE_IS_LCD
         ev = EV_MQTT_CONNECT_FAILURE;
         post_fsm_event(ev);
+#endif
         break;
 
     case MQTT_EVENT_DATA: {
@@ -467,8 +569,10 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
             ESP_LOGE(TAG, "socket errno: %d", event->error_handle->esp_transport_sock_errno);
 
             if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+#if DEVICE_IS_LCD
                 ev = EV_MQTT_CONNECT_FAILURE;
                 post_fsm_event(ev);
+#endif
             }
         }
         break;
