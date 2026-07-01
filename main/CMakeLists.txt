@@ -12,5 +12,5 @@ idf_component_register(SRCS
                     input_handler
                     unit_test
                     product_db
-                    
+                    qr_handler
                     INCLUDE_DIRS ".")

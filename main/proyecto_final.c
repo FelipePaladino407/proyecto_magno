@@ -1,22 +1,23 @@
+#include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
 #include "freertos/projdefs.h"
-#include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "qr_handler.h"
 
 #include "esp_log.h"
 
 #include "fsm.h"
-#include "logger.h"
-#include "ntp_handler.h"
-#include "mqtt_handler.h"
-#include "wifi_manager.h"
 #include "http_handler.h"
+#include "input_handler.h"
+#include "logger.h"
+#include "mqtt_handler.h"
+#include "ntp_handler.h"
 #include "nvs.h"
+#include "product_db.h"
 #include "rgb_led.h"
 #include "unit_test.h"
-#include "input_handler.h"
-#include "product_db.h"
+#include "wifi_manager.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,29 +29,22 @@ QueueHandle_t fsm_event_queue = NULL;
 static Logger logger_local;
 static Logger logger_recibido;
 
-#define ENABLE_FAKE_QR_DEMO 1
+#define ENABLE_FAKE_QR_DEMO 0
 
-static void lcd_display_product_cb(const Product *product)
-{
+static void lcd_display_product_cb(const Product *product) {
     if (product == NULL) {
         return;
     }
 
-    ESP_LOGI("LCD_SIM", "Callback LCD producto -> ID:%s | Nombre:%s | Stock:%lu",
-             product->id,
-             product->name,
+    ESP_LOGI("LCD_SIM", "Callback LCD producto -> ID:%s | Nombre:%s | Stock:%lu", product->id, product->name,
              (unsigned long)product->stock);
 }
 
-static void lcd_display_message_cb(const char *title, const char *message)
-{
-    ESP_LOGI("LCD_SIM", "Callback LCD mensaje -> %s | %s",
-             title != NULL ? title : "",
-             message != NULL ? message : "");
+static void lcd_display_message_cb(const char *title, const char *message) {
+    ESP_LOGI("LCD_SIM", "Callback LCD mensaje -> %s | %s", title != NULL ? title : "", message != NULL ? message : "");
 }
 
-static bool mqtt_publish_qr_cb(const Product *product)
-{
+static bool mqtt_publish_qr_cb(const Product *product) {
     if (product == NULL) {
         return false;
     }
@@ -58,21 +52,18 @@ static bool mqtt_publish_qr_cb(const Product *product)
     return procesar_y_publicar_qr(*product); // este ya devuelve true si sale bien.
 }
 
-static bool mqtt_publish_error_cb(const char *message)
-{
-   return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
+static bool mqtt_publish_error_cb(const char *message) {
+    return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
 }
 
-static void post_touch_event(EventType event)
-{
+static void post_touch_event(EventType event) {
     if (!fsm_post_event(event)) {
         ESP_LOGW(TAG, "No se pudo enviar evento touch fake: %d", event);
     }
 }
 
 #if ENABLE_FAKE_QR_DEMO
-static void fake_qr_demo_task(void *pvParameters)
-{
+static void fake_qr_demo_task(void *pvParameters) {
     (void)pvParameters;
 
     vTaskDelay(pdMS_TO_TICKS(25000));
@@ -108,8 +99,7 @@ static void fake_qr_demo_task(void *pvParameters)
 }
 #endif
 
-void fsm_task(void *pvParameters)
-{
+void fsm_task(void *pvParameters) {
     (void)pvParameters;
 
     EventType incoming_event;
@@ -123,27 +113,21 @@ void fsm_task(void *pvParameters)
     }
 }
 
-static void load_demo_catalog(void)
-{
+static void load_demo_catalog(void) {
     Product product;
 
     if (product_db_upsert_product("PROD001", "Cigarros", 0, &product)) {
-        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu",
-                 product.id,
-                 product.name,
+        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu", product.id, product.name,
                  (unsigned long)product.stock);
     }
 
     if (product_db_upsert_product("PROD002", "Brownies", 0, &product)) {
-        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu",
-                 product.id,
-                 product.name,
+        ESP_LOGI(TAG, "Producto demo cargado -> ID:%s | Nombre:%s | Stock:%lu", product.id, product.name,
                  (unsigned long)product.stock);
     }
 }
 
-void app_main(void)
-{
+void app_main(void) {
     fsm_event_queue = xQueueCreate(20, sizeof(EventType));
     if (fsm_event_queue == NULL) {
         ESP_LOGE(TAG, "CRITICAL: Failed to create FSM Event Queue");
@@ -161,15 +145,15 @@ void app_main(void)
     load_demo_catalog();
 
     /* Los tests usan solo la tabla de transiciones. No registramos callbacks reales hasta terminar. */
-//    fsm_init();
-//    fsm_run_transition_tests();
+    //    fsm_init();
+    //    fsm_run_transition_tests();
 
     fsm_init();
     fsm_register_callbacks(&callbacks);
     fsm_set_auto_events_enabled(true);
 
     xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
-    button_int_config();
+    // button_int_config();
 
     rgb_led_init();
 
@@ -186,6 +170,7 @@ void app_main(void)
 
     init_time();
     iniciar_mqtt();
+    qr_handler_init();
 
 #if ENABLE_FAKE_QR_DEMO
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
@@ -195,4 +180,3 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
-

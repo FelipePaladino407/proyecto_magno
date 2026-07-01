@@ -23,7 +23,7 @@ static void qr_scan_task(void *pvParameters)
     while (1) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb == NULL) {
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
 
@@ -38,35 +38,53 @@ static void qr_scan_task(void *pvParameters)
             struct quirc_code code_struct;
             struct quirc_data data;
             quirc_extract(qr, i, &code_struct);
+            
             if (quirc_decode(&code_struct, &data) == QUIRC_SUCCESS) {
-                const char *raw_payload = (const char *)data.payload;
+                
+                // 1. Convertir el payload crudo a un String C válido (con \0)
+                char raw_payload[256] = {0}; 
+                int payload_len = data.payload_len;
+                
+                // Limitar por seguridad para no desbordar el buffer temporal
+                if (payload_len >= sizeof(raw_payload)) {
+                    payload_len = sizeof(raw_payload) - 1;
+                }
+                
+                // Copiar los bytes reales y forzar el terminador nulo
+                memcpy(raw_payload, data.payload, payload_len);
+                raw_payload[payload_len] = '\0'; 
 
+                // 2. Declarar buffers destino
                 char id[64] = {0};
                 char product_name[64] = {0};
 
+                // 3. Buscar el separador de forma segura
                 const char *sep = strchr(raw_payload, '|');
+                
                 if (sep != NULL) {
-                    strncpy(id, raw_payload, sep - raw_payload);
+                    size_t id_len = sep - raw_payload;
+                    
+                    // Limitar la copia del ID para no desbordar su buffer
+                    if (id_len >= sizeof(id)) {
+                        id_len = sizeof(id) - 1;
+                    }
+                    
+                    strncpy(id, raw_payload, id_len);
+                    id[id_len] = '\0'; // strncpy no garantiza el \0 si se llega al limite
+                    
                     strncpy(product_name, sep + 1, sizeof(product_name) - 1);
+                    product_name[sizeof(product_name) - 1] = '\0';
                 } else {
                     strncpy(id, raw_payload, sizeof(id) - 1);
+                    id[sizeof(id) - 1] = '\0';
                 }
 
-                // JSON para el código
-                char id_json[64] = {0};
-                snprintf(id_json, sizeof(id_json), "{\"codigo\":\"%s\"}", id);
-
-                // JSON para el nombre
-                char name_json[96] = {0};
-                snprintf(name_json, sizeof(name_json), "{\"nombre\":\"%s\"}", product_name);
-
-                // Solo para debug, no es tan importante
-                char json_payload[160] = {0};
+                char json_payload[192] = {0};
                 snprintf(json_payload, sizeof(json_payload),
-                        "{\"codigo\":\"%s\",\"nombre\":\"%s\"}", id, product_name);
+                        "{\"id\":\"%s\",\"name\":\"%s\"}", id, product_name);
                 ESP_LOGI(TAG, "QR completo: %s", json_payload);
 
-                fsm_on_qr_detected(id_json, name_json);
+                fsm_on_qr_detected(id, product_name);
                 vTaskDelay(pdMS_TO_TICKS(3000));
             }
         }
