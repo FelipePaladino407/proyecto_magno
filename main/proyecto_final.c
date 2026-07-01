@@ -30,10 +30,13 @@ QueueHandle_t fsm_event_queue = NULL;
 static Logger logger_local;
 static Logger logger_recibido;
 
-#define ENABLE_FAKE_QR_DEMO 0
-
-#define TOUCHPAD_NUM_BUTTONS 4
-#define POLL_INTERVAL 1000 /*   50 ms entre lecturas    */
+/*
+ * Demo mixta:
+ * - La camara se simula con un QR fake.
+ * - El touch NO se simula: confirmar, subir, bajar y cancelar se hacen
+ *   con los botones touch reales.
+ */
+#define ENABLE_FAKE_QR_DEMO 1
 
 static void lcd_display_product_cb(const Product *product)
 {
@@ -61,16 +64,16 @@ static bool mqtt_publish_product_cb(const Product *product)
     }
 
     /*
-     * Adapter entre FSM y mqtt_handler:
-     * la FSM todavia llama a este callback desde el flujo QR/confirmacion,
-     * pero MQTT no necesita distinguir el origen. Publica un producto valido.
+     * Adapter entre FSM y mqtt_handler.
+     * La FSM llama a este callback cuando ya resolvio el flujo del producto.
+     * MQTT decide internamente si publica a ThingsBoard o si guarda pending.
      */
     return procesar_y_publicar(*product);
 }
 
 static bool mqtt_publish_error_cb(const char *message)
 {
-   return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
+    return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
 }
 
 static bool mqtt_store_pending_product_cb(const Product *product)
@@ -110,11 +113,61 @@ static void network_services_task(void *pvParameters)
 static void post_touch_event(EventType event)
 {
     if (!fsm_post_event(event)) {
-        ESP_LOGW(TAG, "No se pudo enviar evento touch fake: %d", event);
+        ESP_LOGW(TAG, "No se pudo enviar evento touch a la FSM: %d", event);
+    }
+}
+
+static bool touchpad_button_to_event(touchpad_button_t button, EventType *event)
+{
+    if (event == NULL) {
+        return false;
+    }
+
+    switch (button) {
+        case TOUCHPAD_BUTTON_UP:
+            *event = EV_BTN_UP;
+            return true;
+
+        case TOUCHPAD_BUTTON_CONFIRM:
+            *event = EV_BTN_CONFIRM;
+            return true;
+
+        case TOUCHPAD_BUTTON_DOWN:
+            *event = EV_BTN_DOWN;
+            return true;
+
+        case TOUCHPAD_BUTTON_CANCEL:
+            *event = EV_BTN_CANCEL;
+            return true;
+
+        default:
+            return false;
     }
 }
 
 #if ENABLE_FAKE_QR_DEMO
+static void demo_wait_until_fsm_finishes_flow(void)
+{
+    /*
+     * Damos tiempo a que la FSM procese el EV_QR_CAPTURED y salga de IDLE.
+     * Si no hacemos esto, la task demo podria ver IDLE demasiado pronto y
+     * disparar el siguiente QR antes de que arranque el flujo anterior.
+     */
+    for (int i = 0; i < 40; i++) {
+        if (fsm_get_current_state() != STATE_IDLE) {
+            break;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    while (fsm_get_current_state() != STATE_IDLE) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
+}
+
 static void fake_qr_demo_task(void *pvParameters)
 {
     (void)pvParameters;
@@ -124,30 +177,25 @@ static void fake_qr_demo_task(void *pvParameters)
     ESP_LOGI(TAG, "[FAKE_CAMERA] QR valido: LAC-LEC-001/Leche Entera 1L");
     fsm_on_qr_detected("LAC-LEC-001", "Leche Entera 1L");
 
-    vTaskDelay(pdMS_TO_TICKS(20000));
-    ESP_LOGI(TAG, "[FAKE_TOUCH] Confirmar que se quiere agregar LAC-LEC-001");
-    post_touch_event(EV_BTN_CONFIRM);
+    ESP_LOGI(TAG, "[DEMO] Camara fake enviada. Ahora usen el touch real:");
+    ESP_LOGI(TAG, "[DEMO] CONFIRM para aceptar producto, UP/DOWN para cantidad, CONFIRM para publicar, CANCEL para cancelar");
 
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    ESP_LOGI(TAG, "[FAKE_TOUCH] Subir cantidad a 2");
-    post_touch_event(EV_BTN_UP);
+    /*
+     * No enviamos eventos fake de touch.
+     * Esperamos a que el usuario termine el flujo con el touch real
+     * antes de disparar el siguiente caso de camara fake.
+     */
+    demo_wait_until_fsm_finishes_flow();
 
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    ESP_LOGI(TAG, "[FAKE_TOUCH] Subir cantidad a 3");
-    post_touch_event(EV_BTN_UP);
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    ESP_LOGI(TAG, "[FAKE_TOUCH] Confirmar cantidad seleccionada");
-    post_touch_event(EV_BTN_CONFIRM);
-
-    vTaskDelay(pdMS_TO_TICKS(7000));
     ESP_LOGI(TAG, "[FAKE_CAMERA] QR no registrado: PROD999/Galletas");
     fsm_on_qr_detected("PROD999", "Galletas");
+    demo_wait_until_fsm_finishes_flow();
 
-    vTaskDelay(pdMS_TO_TICKS(7000));
     ESP_LOGI(TAG, "[FAKE_CAMERA] QR invalido");
     fsm_on_qr_invalid("No se pudo decodificar QR");
+    demo_wait_until_fsm_finishes_flow();
 
+    ESP_LOGI(TAG, "[DEMO] Fin de camara fake");
     vTaskDelete(NULL);
 }
 #endif
@@ -159,7 +207,7 @@ void fsm_task(void *pvParameters)
     EventType incoming_event;
     ESP_LOGI(TAG, "FSM Task started");
 
-    while (1) {
+    while (true) {
         if (xQueueReceive(fsm_event_queue, &incoming_event, portMAX_DELAY) == pdPASS) {
             ESP_LOGI(TAG, "EVENT RECEIVED: %d", incoming_event);
             fsm_execute_transition(incoming_event);
@@ -177,57 +225,33 @@ static void load_catalog(void)
              CATALOGO_SIZE);
 }
 
-static void touchpad_task(void *pvParameters) /*    Task que lee inputs del touchpad y envia eventos al fsm*/
+static void touchpad_task(void *pvParameters)
 {
     (void)pvParameters;
-    int counter = 0;
-    EventType event;
-while (1) {
-    bool was_pressed[TOUCHPAD_NUM_BUTTONS] = {false};
-            for (uint8_t i = 0; i < TOUCHPAD_NUM_BUTTONS; i++){
-            bool pressed = touchpad_is_pressed(i);
-            
-            if (pressed && !was_pressed[i]) {
 
-                switch (i){
+    while (true) {
+        touchpad_button_t button;
 
-                    case 0:     /*  Boton VOL_UP, incrementa el contador*/
-                    counter++;
-                    ESP_LOGI(TAG, "Boton 0 presionado. Contador: %d", counter);
-                    event = EV_BTN_UP;
-                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    break;
+        if (touchpad_get_pressed_button(&button)) {
+            EventType event;
 
-                    case 1:     /*  Boton PLAY/PAUSE, confirma que se quiere agregar el producto*/
-                    event = EV_BTN_CONFIRM;
-                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
+            if (touchpad_button_to_event(button, &event)) {
+                ESP_LOGI(TAG,
+                         "Touch %s presionado -> evento FSM %d",
+                         touchpad_button_name(button),
+                         event);
 
-                    break;
-
-                    case 2:    /*  Boton VOL_DOWN, decrementa el contador si es mayor que 1 */
-                    if (counter > 1) {
-                        counter--;
-                        event = EV_BTN_DOWN;
-                        xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    }
-                    ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
-                    break;
-
-                    case 3:    /*  Boton RECORD, indica que no se quiere agregar el producto */
-                    event = EV_BTN_CANCEL;
-                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    ESP_LOGI(TAG, "Boton 3 presionado. OK: %d", OK);
-                    break;
-
-                }
+                post_touch_event(event);
+            } else {
+                ESP_LOGW(TAG,
+                         "Touch %s sin evento FSM asociado",
+                         touchpad_button_name(button));
             }
-            was_pressed[i] = pressed;
-            vTaskDelay(pdMS_TO_TICKS(50));
         }
+
+        vTaskDelay(pdMS_TO_TICKS(TOUCHPAD_POLL_INTERVAL_MS));
     }
 }
-
 
 void app_main(void)
 {
@@ -258,7 +282,12 @@ void app_main(void)
     fsm_set_auto_events_enabled(true);
 
     xTaskCreate(&fsm_task, "FSM_TASK", 4096, NULL, 1, NULL);
-    button_int_config();
+
+    /*
+     * Si van a usar solo touchpad, conviene dejar los botones fisicos desactivados
+     * para no generar eventos duplicados o confusos.
+     */
+//    button_int_config();
 
     rgb_led_init();
 
@@ -274,7 +303,7 @@ void app_main(void)
     logger_init(&logger_recibido, "recibido");
     mqtt_handler_set_loggers(&logger_local, &logger_recibido);
 
-    touchpad_init(); /* Inicializa el touchpad */
+    touchpad_init();
 
     xTaskCreate(&network_services_task, "NETWORK_SERVICES", 4096, NULL, 1, NULL);
 
@@ -282,12 +311,10 @@ void app_main(void)
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
 #endif
 
-    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL); /* Crea la task para leer el touchpad */
-    
+    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
+
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
-
-
 
