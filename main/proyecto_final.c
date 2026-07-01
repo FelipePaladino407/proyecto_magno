@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 
+#include "qr_handler.h"
 #include "fsm.h"
 #include "logger.h"
 #include "ntp_handler.h"
@@ -39,7 +40,8 @@ static Logger logger_recibido;
  *   con los botones touch reales.
  * - La LCD es real: la FSM llama a lcd_manager mediante callbacks.
  */
-#define ENABLE_FAKE_QR_DEMO 1
+#define ENABLE_FAKE_QR_DEMO 0
+#define CAMERA 1
 
 static void lcd_show_waiting_cb(void)
 {
@@ -332,7 +334,8 @@ void app_main(void)
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
 #endif
 
-    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
+    qr_handler_init();
+    // xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));

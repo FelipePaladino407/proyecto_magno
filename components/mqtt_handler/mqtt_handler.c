@@ -33,7 +33,7 @@ static Logger *logger_recibido_mqtt = NULL;
 //Parametros de conexion MQTT//
 ///////////////////////////////
 #ifndef DEVICE_IS_LCD
-#define DEVICE_IS_LCD 1
+#define DEVICE_IS_LCD 0
 #endif
 
 #if DEVICE_IS_LCD

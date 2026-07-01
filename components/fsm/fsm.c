@@ -464,7 +464,7 @@ static const Transition transition_table[] = {
     {STATE_IDLE, EV_MQTT_CONNECT_FAILURE, STATE_IDLE, handle_mqtt_disconnected},
 
     {STATE_SCAN_PROCESSING, EV_SCAN_INVALID, STATE_ERROR_DISPLAY, handle_scan_invalid},
-    {STATE_SCAN_PROCESSING, EV_SCAN_SUCCESS, STATE_LOCAL_DB_LOOKUP, lookup_product},
+    {STATE_SCAN_PROCESSING, EV_SCAN_SUCCESS, STATE_MQTT_PUBLISHING, execute_mqtt_publish},
 
     {STATE_LOCAL_DB_LOOKUP, EV_PRODUCT_FOUND, STATE_PROMPT_ADD_PRODUCT, prompt_add_product},
     {STATE_LOCAL_DB_LOOKUP, EV_PRODUCT_NOT_FOUND, STATE_ERROR_DISPLAY, handle_product_not_found},
