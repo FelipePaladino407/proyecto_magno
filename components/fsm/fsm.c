@@ -567,31 +567,55 @@ void fsm_set_active_product(Product prod)
     active_product_valid = true;
 }
 
+// LA FSM NO PUEDE PROCESAR QR SI NO ESTA EN ESTADO IDLE
 bool fsm_on_qr_detected(const char *id, const char *name)
 {
+    if (current_state != STATE_IDLE) {
+        ESP_LOGW(TAG,
+                 "QR ignorado porque FSM ocupada -> state=%d | ID=%s | Nombre=%s",
+                 current_state,
+                 id != NULL ? id : "",
+                 name != NULL ? name : "");
+        return false;
+    }
+
     cancel_timeout_timer();
     cancel_idle_screen_timer();
 
     memset(&active_product, 0, sizeof(active_product));
     last_error[0] = '\0';
+
     safe_copy(active_product.id, id, sizeof(active_product.id));
     safe_copy(active_product.name, name, sizeof(active_product.name));
     active_product.stock = 0;
     active_product_valid = active_product.id[0] != '\0';
 
-    ESP_LOGI(TAG, "Callback QR -> ID=%s | Nombre=%s", active_product.id, active_product.name);
+    ESP_LOGI(TAG, "Callback QR -> ID=%s | Nombre=%s",
+             active_product.id,
+             active_product.name);
 
     return fsm_post_event(EV_QR_CAPTURED);
 }
 
 bool fsm_on_qr_invalid(const char *reason)
 {
+    if (current_state != STATE_IDLE) {
+        ESP_LOGW(TAG,
+                 "QR invalido ignorado porque FSM ocupada -> state=%d | reason=%s",
+                 current_state,
+                 reason != NULL ? reason : "");
+        return false;
+    }
+
     cancel_timeout_timer();
     cancel_idle_screen_timer();
 
     memset(&active_product, 0, sizeof(active_product));
     active_product_valid = false;
-    safe_copy(last_error, reason != NULL ? reason : "QR invalido", sizeof(last_error));
+
+    safe_copy(last_error,
+              reason != NULL ? reason : "QR invalido",
+              sizeof(last_error));
 
     return fsm_post_event(EV_QR_CAPTURED);
 }
