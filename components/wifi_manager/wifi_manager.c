@@ -28,6 +28,7 @@ static bool s_credentials_saved = false;
 static bool s_sta_connected     = false;
 static char s_sta_ssid[33]      = {0};
 static char s_ip_address[16]    = {0};
+static char s_ap_ssid[33]       = {0}; // SSID real del AP (ESP32-XXXXXX), armado con la MAC
 static portMUX_TYPE s_status_mux = portMUX_INITIALIZER_UNLOCKED;
 
 
@@ -215,6 +216,10 @@ esp_err_t wifi_manager_init(void)
         "ESP32-%02X%02X%02X", mac[3], mac[4], mac[5]);
     ap_config.ap.ssid_len = strlen((char *)ap_config.ap.ssid);
 
+    /* Guardamos el SSID real (con la MAC) para que get_ap_ssid() y los
+     * logs muestren el nombre que efectivamente se va a crear. */
+    strlcpy(s_ap_ssid, (char *)ap_config.ap.ssid, sizeof(s_ap_ssid));
+
     if (strlen(WIFI_MANAGER_AP_PASS) == 0)
         ap_config.ap.authmode = WIFI_AUTH_OPEN;
 
@@ -247,7 +252,7 @@ esp_err_t wifi_manager_init(void)
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "No se pudo iniciar el Wi-Fi");
 
     s_initialized = true;
-    ESP_LOGI(TAG, "Portal disponible en la red %s", WIFI_MANAGER_AP_SSID);
+    ESP_LOGI(TAG, "Portal disponible en la red %s", s_ap_ssid);
     ESP_LOGI(TAG, "Conectate y abre http://192.168.4.1");
 
     return ESP_OK;
@@ -340,10 +345,10 @@ void wifi_manager_get_status(wifi_manager_status_t *status)
     portEXIT_CRITICAL(&s_status_mux);
 }
 
-// Devuelve el SSID del AP para el portal de configuración.
+// Devuelve el SSID real del AP (incluye la MAC, ej: ESP32-A1B2C3).
 const char *wifi_manager_get_ap_ssid(void)
 {
-    return WIFI_MANAGER_AP_SSID;
+    return s_ap_ssid;
 }
 
 // Funciones de inicialización específicas para cada modo (AP y STA).
