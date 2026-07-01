@@ -180,51 +180,35 @@ static void load_catalog(void)
 static void touchpad_task(void *pvParameters) /*    Task que lee inputs del touchpad y envia eventos al fsm*/
 {
     (void)pvParameters;
-    int counter = 0;
+
+    static const EventType event_map[TOUCHPAD_NUM_BUTTONS] = {
+        EV_BTN_UP,      /*  Boton VOL_UP     */
+        EV_BTN_CONFIRM, /*  Boton PLAY/PAUSE */
+        EV_BTN_DOWN,    /*  Boton VOL_DOWN   */
+        EV_BTN_CANCEL,  /*  Boton RECORD     */
+    };
+
+    static const char *button_names[TOUCHPAD_NUM_BUTTONS] = {
+        "VOL_UP (contador +)",
+        "PLAY/PAUSE (confirmar)",
+        "VOL_DOWN (contador -)",
+        "RECORD (cancelar)",
+    };
+
     EventType event;
-while (1) {
     bool was_pressed[TOUCHPAD_NUM_BUTTONS] = {false};
+while (1) {   
             for (uint8_t i = 0; i < TOUCHPAD_NUM_BUTTONS; i++){
             bool pressed = touchpad_is_pressed(i);
             
-            if (pressed && !was_pressed[i]) {
-
-                switch (i){
-
-                    case 0:     /*  Boton VOL_UP, incrementa el contador*/
-                    counter++;
-                    ESP_LOGI(TAG, "Boton 0 presionado. Contador: %d", counter);
-                    event = EV_BTN_UP;
-                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    break;
-
-                    case 1:     /*  Boton PLAY/PAUSE, confirma que se quiere agregar el producto*/
-                    event = EV_BTN_CONFIRM;
-                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    ESP_LOGI(TAG, "Boton 1 presionado. OK: %d", OK);
-
-                    break;
-
-                    case 2:    /*  Boton VOL_DOWN, decrementa el contador si es mayor que 1 */
-                    if (counter > 1) {
-                        counter--;
-                        event = EV_BTN_DOWN;
-                        xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    }
-                    ESP_LOGI(TAG, "Boton 2 presionado. Contador: %d", counter);
-                    break;
-
-                    case 3:    /*  Boton RECORD, indica que no se quiere agregar el producto */
-                    event = EV_BTN_CANCEL;
-                    xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                    ESP_LOGI(TAG, "Boton 3 presionado. OK: %d", OK);
-                    break;
-
-                }
+            if (pressed && !was_pressed[i]) {   // Detecta el flanco de subida (botón presionado)
+                event = event_map[i];
+                xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
+                ESP_LOGI(TAG, "boton %s presionado, enviando evento %d", button_names[i], event);
             }
             was_pressed[i] = pressed;
-            vTaskDelay(pdMS_TO_TICKS(50));
         }
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 

@@ -1,51 +1,50 @@
 #include "touchpad.h"
-
+#include "esp_log.h"
 #include <stdio.h>
 #include <inttypes.h>
 #include <string.h>
 
 #include "driver/touch_sens.h"
-#include "esp_check.h"
-#include "esp_rom_sys.h"
+
+static const char *TAG = "TOUCHPAD";
 
 /* ─── Configuración ──────────────────────────────────────────────── */
 
 #define TOUCHPAD_CHANNEL_NUM     4      // hay 4 botones táctiles, gpio 6 y 11 dan conflicto con el LCD
 #define TOUCHPAD_INIT_SCAN_TIMES 3      // escanea 3 veces al arrancar para calibrar
-#define TOUCHPAD_THRESH_RATIO    0.05f // si la señal varía 5%, se considera "tocado"
+#define TOUCHPAD_THRESH_RATIO    0.05f // si la señal varía 5% del umbral, se considera "tocado" (es relativo)
 
-static const int s_channel_id[] = { 1, 2, 3, 5 }; // canales físicos del hardware
+static const int s_channel_id[] = { 1, 2, 3, 5 }; // canales físicos del hardware, gpio 1, 2, 3 y 5
 
 /* ─── Estado interno ─────────────────────────────────────────────── */
 
 static touch_sensor_handle_t  s_sens_handle = NULL;
 static touch_channel_handle_t s_chan_handle[TOUCHPAD_CHANNEL_NUM];
 static uint32_t               s_threshold[TOUCHPAD_CHANNEL_NUM][TOUCH_SAMPLE_CFG_NUM];
+static bool                   s_init_done = false;   // flag que indica si el touchpad fue inicializado
 
 /* ─── Escaneo inicial y calibración ─────────────────────────────── */
 
 static void touchpad_initial_scanning(void)
 {
-    ESP_ERROR_CHECK(touch_sensor_enable(s_sens_handle));
+    ESP_ERROR_CHECK(touch_sensor_enable(s_sens_handle)); // habilita el sensor de los botones
 
     for (int i = 0; i < TOUCHPAD_INIT_SCAN_TIMES; i++) {
-        ESP_ERROR_CHECK(touch_sensor_trigger_oneshot_scanning(s_sens_handle, 2000));
+        ESP_ERROR_CHECK(touch_sensor_trigger_oneshot_scanning(s_sens_handle, 2000)); // escaneo de 2 segundos
     }
 
-    ESP_ERROR_CHECK(touch_sensor_disable(s_sens_handle));
+    ESP_ERROR_CHECK(touch_sensor_disable(s_sens_handle)); // deshabilita el sensor de los botones
 
-    printf("Benchmarks y umbrales iniciales:\n");
-
-    for (int i = 0; i < TOUCHPAD_CHANNEL_NUM; i++) {
+    for (int i = 0; i < TOUCHPAD_CHANNEL_NUM; i++) { // por cada canal
 
         uint32_t benchmark[TOUCH_SAMPLE_CFG_NUM];
         memset(benchmark, 0, sizeof(benchmark));
 
         /* ESP32-S2 es hw_ver2 → siempre soporta benchmark */
         ESP_ERROR_CHECK(touch_channel_read_data(
-            s_chan_handle[i], TOUCH_CHAN_DATA_TYPE_BENCHMARK, benchmark));
+            s_chan_handle[i], TOUCH_CHAN_DATA_TYPE_BENCHMARK, benchmark)); // lee el benchmark
 
-        printf("[touchpad] CH %2d ->", s_channel_id[i]);
+        ESP_LOGI(TAG, "[touchpad] CH %2d ->", s_channel_id[i]);
 
         /* Calcular umbral = benchmark * ratio, y reconfigurarlo */
         touch_channel_config_t chan_cfg = {
@@ -57,12 +56,12 @@ static void touchpad_initial_scanning(void)
         for (int j = 0; j < TOUCH_SAMPLE_CFG_NUM; j++) {
             uint32_t thresh = (uint32_t)(benchmark[j] * TOUCHPAD_THRESH_RATIO);
             if (thresh == 0) thresh = 1;      /* mínimo 1 para no ignorar */
-            chan_cfg.active_thresh[j] = thresh;
-            s_threshold[i][j]         = thresh;
-            printf("  [%d] bm=%" PRIu32 " thr=%" PRIu32, j, benchmark[j], thresh);
+            chan_cfg.active_thresh[j] = thresh;  //aplica el umbral calculado
+            s_threshold[i][j]         = thresh;  //guarda el umbral para compararlo en touchpad_is_pressed()
+            ESP_LOGI(TAG, "  [%d] bm=%" PRIu32 " thr=%" PRIu32, j, benchmark[j], thresh);
         }
 
-        printf("\n");
+        ESP_LOGI(TAG, "\n");
         ESP_ERROR_CHECK(touch_sensor_reconfig_channel(s_chan_handle[i], &chan_cfg));
     }
 }
@@ -96,50 +95,52 @@ void touchpad_init(void)
         .init_charge_volt = TOUCH_INIT_CHARGE_VOLT_DEFAULT,
     };
 
-    for (int i = 0; i < TOUCHPAD_CHANNEL_NUM; i++) {
+    for (int i = 0; i < TOUCHPAD_CHANNEL_NUM; i++) {    // registra cada canal con la configuración inicial
         ESP_ERROR_CHECK(touch_sensor_new_channel(
             s_sens_handle, s_channel_id[i], &chan_cfg, &s_chan_handle[i]));
 
         touch_chan_info_t info = {};
         ESP_ERROR_CHECK(touch_sensor_get_channel_info(s_chan_handle[i], &info));
-        printf("[touchpad] CH %2d habilitado en GPIO%d\n",
+        ESP_LOGI(TAG, "[touchpad] CH %2d habilitado en GPIO%d\n",
                s_channel_id[i], info.chan_gpio);
     }
 
-    printf("=================================\n");
+    ESP_LOGI(TAG, "=================================");
 
-    /* 4. Filtro */
+    /* 4. Filtro */  // reduce el ruido de la señal, configuado con los valores por defecto de la macro oficial
     touch_sensor_filter_config_t filter_cfg = TOUCH_SENSOR_DEFAULT_FILTER_CONFIG();
     ESP_ERROR_CHECK(touch_sensor_config_filter(s_sens_handle, &filter_cfg));
 
     /* 5. Escaneo inicial para calibrar umbrales reales */
     touchpad_initial_scanning();
 
-    /* 6. Arrancar escaneo continuo (polling, sin FreeRTOS) */
-    ESP_ERROR_CHECK(touch_sensor_enable(s_sens_handle));
-    ESP_ERROR_CHECK(touch_sensor_start_continuous_scanning(s_sens_handle));
+    /* 6. Arrancar escaneo continuo (polling) */
+    ESP_ERROR_CHECK(touch_sensor_enable(s_sens_handle)); // habilita el sensor
+    ESP_ERROR_CHECK(touch_sensor_start_continuous_scanning(s_sens_handle)); // arranca el escaneo continuo
 
-    printf("[touchpad] Listo. Canales activos: ");
+    s_init_done = true;
+
+    ESP_LOGI(TAG, "[touchpad] Listo. Canales activos: ");
     for (int i = 0; i < TOUCHPAD_CHANNEL_NUM; i++) {
-        printf("%d%s", s_channel_id[i],
-               i < TOUCHPAD_CHANNEL_NUM - 1 ? ", " : "\n");
+        ESP_LOGI(TAG, "%d%s", s_channel_id[i],
+                 i < TOUCHPAD_CHANNEL_NUM - 1 ? ", " : "\n");
     }
 }
 
 bool touchpad_is_pressed(uint8_t button_index)
 {
-    if (button_index >= TOUCHPAD_CHANNEL_NUM) {
-        return false;
+    if (!s_init_done || button_index >= TOUCHPAD_CHANNEL_NUM) {  // chequea si no está inicializado o el índice es inválido
+        return false;                                            // si se cumple alguna, devuelve false
     }
 
-    uint32_t smooth[TOUCH_SAMPLE_CFG_NUM];
+    uint32_t smooth[TOUCH_SAMPLE_CFG_NUM];  // lee el valor filtrado de la señal
     memset(smooth, 0, sizeof(smooth));
 
     if (touch_channel_read_data(s_chan_handle[button_index],TOUCH_CHAN_DATA_TYPE_SMOOTH,smooth) != ESP_OK) {
         return false;
     }
 
-    uint32_t benchmark[TOUCH_SAMPLE_CFG_NUM];
+    uint32_t benchmark[TOUCH_SAMPLE_CFG_NUM];   // lee el benchmark de la señal
         memset(benchmark, 0, sizeof(benchmark));
 
     if (touch_channel_read_data(s_chan_handle[button_index],TOUCH_CHAN_DATA_TYPE_BENCHMARK,benchmark) != ESP_OK) {
