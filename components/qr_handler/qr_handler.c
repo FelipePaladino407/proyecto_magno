@@ -1,6 +1,8 @@
 #include "qr_handler.h"
 #include "qr_handler_config.h"
 #include <string.h>           // memcpy
+#include <stdio.h>
+#include "fsm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"    // xTaskCreate, vTaskDelay, vTaskDelete
 #include "esp_log.h"          // ESP_LOGI, ESP_LOGE
@@ -21,7 +23,7 @@ static void qr_scan_task(void *pvParameters)
     while (1) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb == NULL) {
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
 
@@ -36,12 +38,53 @@ static void qr_scan_task(void *pvParameters)
             struct quirc_code code_struct;
             struct quirc_data data;
             quirc_extract(qr, i, &code_struct);
+            
             if (quirc_decode(&code_struct, &data) == QUIRC_SUCCESS) {
-                ESP_LOGI(TAG, "QR: %s", (char *)data.payload);
+                
+                char raw_payload[256] = {0}; 
+                int payload_len = data.payload_len;
+                
+                // limitar por seguridad para generar overflow en el buffer
+                if (payload_len >= sizeof(raw_payload)) {
+                    payload_len = sizeof(raw_payload) - 1;
+                }
+                
+                // copiar los bytes reales y forzar el terminador nullete
+                memcpy(raw_payload, data.payload, payload_len);
+                raw_payload[payload_len] = '\0'; 
+
+                char id[64] = {0};
+                char product_name[64] = {0};
+
+                const char *sep = strchr(raw_payload, '|');
+                
+                if (sep != NULL) {
+                    size_t id_len = sep - raw_payload;
+                    
+                    // limitar la copia del id para no overflowar buffer
+                    if (id_len >= sizeof(id)) {
+                        id_len = sizeof(id) - 1;
+                    }
+                    
+                    strncpy(id, raw_payload, id_len);
+                    id[id_len] = '\0'; // strncpy no garantiza el \0 si se llega al limite
+                    
+                    strncpy(product_name, sep + 1, sizeof(product_name) - 1);
+                    product_name[sizeof(product_name) - 1] = '\0';
+                } else {
+                    strncpy(id, raw_payload, sizeof(id) - 1);
+                    id[sizeof(id) - 1] = '\0';
+                }
+
+                char json_payload[192] = {0};
+                snprintf(json_payload, sizeof(json_payload),
+                        "{\"id\":\"%s\",\"name\":\"%s\"}", id, product_name);
+                ESP_LOGI(TAG, "QR completo: %s", json_payload);
+
+                fsm_on_qr_detected(id, product_name);
+                vTaskDelay(pdMS_TO_TICKS(3000));
             }
         }
-
-        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -51,6 +94,12 @@ void qr_handler_init(void)
         ESP_LOGE(TAG, "No se pudo inicializar la cámara.");
         return;
     }
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_contrast(s, 2);      // más contraste: -2 a 2
+    s->set_brightness(s, 0);    // brillo normal
+    s->set_saturation(s, -2);   // menos saturación (ya es grayscale pero ayuda)
+    s->set_sharpness(s, 2);     // más nitidez
+    
     ESP_LOGI(TAG, "Cámara inicializada.");
     xTaskCreate(qr_scan_task, "qr_scan", 32768, NULL, 4, NULL);
 }

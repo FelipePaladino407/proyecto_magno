@@ -14,5 +14,5 @@ idf_component_register(SRCS
                     product_db
                     pending_queue
                     touchpad
-                    
+                    qr_handler
                     INCLUDE_DIRS ".")
