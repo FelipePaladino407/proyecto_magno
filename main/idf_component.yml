@@ -11,7 +11,7 @@ dependencies:
   # username2/component2:
   #   version: "~1.0.0"
   #   # For transient dependencies `public` flag can be set.
-  #   # `public` flag doesn't have an effect dependencies of the `main` component.
+  #   # `public` flag doesn't have an effect dependencies of `main` component.
   #   # All dependencies of `main` are public by default.
   #   public: true
   espressif/mqtt: ^1.0.0
@@ -20,3 +20,5 @@ dependencies:
     version: "^2.0.0"
   espressif/quirc:
     version: "^1.2.0"
+  lvgl/lvgl:
+    version: "^9.5.0"

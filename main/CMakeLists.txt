@@ -14,5 +14,7 @@ idf_component_register(SRCS
                     product_db
                     pending_queue
                     touchpad
+                    lcd_port
+                    lcd_manager
                     
                     INCLUDE_DIRS ".")

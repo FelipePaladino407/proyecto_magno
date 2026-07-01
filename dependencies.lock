@@ -57,12 +57,20 @@ dependencies:
     source:
       type: idf
     version: 6.0.0
+  lvgl/lvgl:
+    component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.5.0
 direct_dependencies:
 - espressif/cjson
 - espressif/esp32-camera
 - espressif/mqtt
 - espressif/quirc
 - idf
-manifest_hash: 7c44160d98b5b8fa3c541530cd472d11e79bc1ed77aad36bec206db5f38c731a
+- lvgl/lvgl
+manifest_hash: 1b1532c44c21a147ddf500ebde5a2e78be83d5c3c39fb564ba6fd9dbb8c4a6f3
 target: esp32s2
 version: 3.0.0
