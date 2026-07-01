@@ -1,6 +1,5 @@
 #include "touchpad.h"
 #include "esp_log.h"
-#include <stdio.h>
 #include <inttypes.h>
 #include <string.h>
 
@@ -18,8 +17,8 @@ static const int s_channel_id[] = { 1, 2, 3, 5 }; // canales físicos del hardwa
 
 /* ─── Estado interno ─────────────────────────────────────────────── */
 
-static touch_sensor_handle_t  s_sens_handle = NULL;
-static touch_channel_handle_t s_chan_handle[TOUCHPAD_CHANNEL_NUM];
+static touch_sensor_handle_t  s_sens_handle = NULL; // handle del sensor
+static touch_channel_handle_t s_chan_handle[TOUCHPAD_CHANNEL_NUM];  // handles de los canales
 static uint32_t               s_threshold[TOUCHPAD_CHANNEL_NUM][TOUCH_SAMPLE_CFG_NUM];
 static bool                   s_init_done = false;   // flag que indica si el touchpad fue inicializado
 
