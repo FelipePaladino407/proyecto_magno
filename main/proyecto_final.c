@@ -20,6 +20,8 @@
 #include "product_db.h"
 #include "pending_queue.h"
 #include "touchpad.h"
+#include "lcd_port.h"
+#include "lcd_manager.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -33,33 +35,45 @@ static Logger logger_recibido;
 
 /*
  * Demo mixta:
- * - La camara se simula con un QR fake.
+ * - La camara se simula con tres entradas fake.
  * - El touch NO se simula: confirmar, subir, bajar y cancelar se hacen
  *   con los botones touch reales.
+ * - La LCD es real: la FSM llama a lcd_manager mediante callbacks.
  */
 #define ENABLE_FAKE_QR_DEMO 0
 #define CAMERA 1
 
-static void lcd_display_product_cb(const Product *product)
+static void lcd_show_waiting_cb(void)
 {
-    if (product == NULL) {
-        return;
-    }
-
-    ESP_LOGI("LCD_SIM", "Callback LCD producto -> ID:%s | Nombre:%s | Stock:%lu",
-             product->id,
-             product->name,
-             (unsigned long)product->stock);
+    lcd_show_waiting();
 }
 
-static void lcd_display_message_cb(const char *title, const char *message)
+static void lcd_show_product_prompt_cb(const Product *product, uint32_t add_amount)
 {
-    ESP_LOGI("LCD_SIM", "Callback LCD mensaje -> %s | %s",
-             title != NULL ? title : "",
-             message != NULL ? message : "");
+    lcd_show_product(product, (int)add_amount);
 }
 
-static bool mqtt_publish_product_cb(const Product *product)
+static void lcd_show_quantity_selection_cb(const Product *product, uint32_t add_amount)
+{
+    lcd_show_product(product, (int)add_amount);
+}
+
+static void lcd_show_success_cb(const Product *product)
+{
+    lcd_show_added(product);
+}
+
+static void lcd_show_cancelled_cb(void)
+{
+    lcd_show_cancelled();
+}
+
+static void lcd_show_error_cb(const char *message)
+{
+    lcd_show_error(message != NULL ? message : "Error desconocido");
+}
+
+static bool mqtt_publish_qr_cb(const Product *product)
 {
     if (product == NULL) {
         return false;
@@ -67,8 +81,8 @@ static bool mqtt_publish_product_cb(const Product *product)
 
     /*
      * Adapter entre FSM y mqtt_handler.
-     * La FSM llama a este callback cuando ya resolvio el flujo del producto.
-     * MQTT decide internamente si publica a ThingsBoard o si guarda pending.
+     * La FSM llama a este callback cuando ya actualizo el stock local.
+     * MQTT decide internamente si publica o si informa fallo para guardar pending.
      */
     return procesar_y_publicar(*product);
 }
@@ -78,7 +92,7 @@ static bool mqtt_publish_error_cb(const char *message)
     return procesar_y_publicar_error(message != NULL ? message : "Error desconocido");
 }
 
-static bool mqtt_store_pending_product_cb(const Product *product)
+static bool mqtt_store_pending_qr_cb(const Product *product)
 {
     if (product == NULL) {
         return false;
@@ -263,12 +277,19 @@ void app_main(void)
         return;
     }
 
+    lcd_port_init();
+    lcd_manager_init();
+
     FsmCallbacks callbacks = {
-        .display_product = lcd_display_product_cb,
-        .display_message = lcd_display_message_cb,
-        .publish_qr = mqtt_publish_product_cb,
+        .show_waiting = lcd_show_waiting_cb,
+        .show_product_prompt = lcd_show_product_prompt_cb,
+        .show_quantity_selection = lcd_show_quantity_selection_cb,
+        .show_success = lcd_show_success_cb,
+        .show_cancelled = lcd_show_cancelled_cb,
+        .show_error = lcd_show_error_cb,
+        .publish_qr = mqtt_publish_qr_cb,
         .publish_error = mqtt_publish_error_cb,
-        .store_pending_qr = mqtt_store_pending_product_cb,
+        .store_pending_qr = mqtt_store_pending_qr_cb,
         .flush_pending = mqtt_flush_pending_cb,
     };
 
