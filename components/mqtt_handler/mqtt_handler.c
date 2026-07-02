@@ -446,13 +446,6 @@ static bool procesar_json_recibido(const char *mensaje)
     cJSON *timestamp_json = cJSON_GetObjectItem(json, "timestamp");
     cJSON *estado_json    = cJSON_GetObjectItem(json, "estado");
 
-    if (cJSON_IsString(device_id) && strcmp(device_id->valuestring, DEVICE_ID) == 0) {//evita procesar mensajes propios
-        ESP_LOGI(TAG, "Mensaje propio recibido, ignorado");
-        procesar_y_publicar_LOGI("I: Mensaje propio recibido, ignorado");
-        cJSON_Delete(json);
-        return true;
-    }
-
     if (cJSON_IsString(id) && cJSON_IsString(producto) && cJSON_IsNumber(stock) &&
         cJSON_IsNumber(timestamp_json) && cJSON_IsString(estado_json)) {//se asegura que tenga elf ormato esperado
 
