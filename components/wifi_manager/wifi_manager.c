@@ -9,6 +9,7 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "esp_mac.h"
+#include "device_role.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "nvs.h"
@@ -149,9 +150,15 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         rgb_led_set_color(0, 255, 0); // Verde
         ESP_LOGI(TAG, "STA conectada. IP obtenida: %s", ip_string);
 
-        /* Notificar a la FSM que el Wi-Fi está listo */
-        EventType ev_wifi = EV_WIFI_CONNECT_SUCCESS;
-        xQueueSend(fsm_event_queue, &ev_wifi, 0);
+        /* Notificar a la FSM que el Wi-Fi esta listo solo en la placa LCD.
+         * La placa CAM no levanta FSM principal, por lo que fsm_event_queue queda NULL.
+         */
+#if DEVICE_IS_LCD
+        if (fsm_event_queue != NULL) {
+            EventType ev_wifi = EV_WIFI_CONNECT_SUCCESS;
+            xQueueSend(fsm_event_queue, &ev_wifi, 0);
+        }
+#endif
     }
 }
 

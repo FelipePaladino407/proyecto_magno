@@ -1,0 +1,33 @@
+# Proyecto Magno - defaults críticos de build
+# Este archivo evita perder estas opciones al regenerar sdkconfig.
+
+# Target
+CONFIG_IDF_TARGET="esp32s2"
+CONFIG_IDF_TARGET_ESP32S2=y
+
+# Flash: ESP32-S2 Kaluga / placa con 4MB
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHMODE="dio"
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHFREQ="80m"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# Partition table custom del proyecto
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_MD5=y
+
+# LVGL: limitar heap interno de lv_malloc a 16KB
+CONFIG_LV_USE_BUILTIN_MALLOC=y
+CONFIG_LV_MEM_SIZE_KILOBYTES=16
+CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=0
+CONFIG_LV_MEM_ADR=0x0
+
+# Rol por defecto: LCD + Touch.
+# Para la placa cámara cambiar en menuconfig:
+# Proyecto Magno -> Rol de esta placa -> Placa Camara QR
+CONFIG_PROYECTO_DEVICE_ROLE_LCD=y
+# CONFIG_PROYECTO_DEVICE_ROLE_CAM is not set
