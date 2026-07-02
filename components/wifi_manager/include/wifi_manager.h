@@ -28,9 +28,6 @@ esp_err_t wifi_manager_init(void);
 // Guarda las credenciales en NVS e intenta conectarse inmediatamente.
 esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password);
 
-// Borra las credenciales guardadas y desconecta la interfaz STA.
-esp_err_t wifi_manager_clear_credentials(void);
-
 // Copia el estado actual del Wi-Fi en la estructura recibida
 void wifi_manager_get_status(wifi_manager_status_t *status);
 
