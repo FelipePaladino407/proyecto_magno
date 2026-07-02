@@ -101,12 +101,12 @@ void qr_handler_init(void) {
         return;
     }
     sensor_t *s = esp_camera_sensor_get();
-    s->set_contrast(s, 0);    // más contraste: -2 a 2
-    s->set_brightness(s, 0);  // brillo normal
+    s->set_contrast(s, -1);    // más contraste: -2 a 2
+    s->set_brightness(s, -1);  // brillo normal
     s->set_saturation(s, -2); // menos saturación (ya es grayscale pero ayuda)
     s->set_sharpness(s, 0);   // más nitidez
-    s->set_aec2(s, 1);
-
+    // s->set_aec2(s, 1);
+    s->set_awb_gain(s,1);
     ESP_LOGI(TAG, "Cámara inicializada.");
     xTaskCreate(qr_scan_task, "qr_scan", 32768, NULL, 4, NULL);
 }
