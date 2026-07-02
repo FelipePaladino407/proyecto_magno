@@ -307,32 +307,6 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
     return esp_wifi_connect();
 }
 
-// Elimina las credenciales Wi-Fi guardadas y desconecta la interfaz STA si está conectada.
-esp_err_t wifi_manager_clear_credentials(void)
-{
-    if (!s_initialized) 
-        return ESP_ERR_INVALID_STATE;
-
-    esp_err_t err = nvs_storage_clear();
-
-    if (err != ESP_OK)
-        return err;
-
-    portENTER_CRITICAL(&s_status_mux);
-    s_credentials_saved = false;
-    s_sta_connected     = false;
-    s_sta_ssid[0]       = '\0';
-    s_ip_address[0]     = '\0';
-    portEXIT_CRITICAL(&s_status_mux);
-
-    esp_err_t dc_err = esp_wifi_disconnect();
-    if (dc_err != ESP_OK && dc_err != ESP_ERR_WIFI_NOT_CONNECT)
-        return dc_err;
-
-    ESP_LOGI(TAG, "Credenciales Wi-Fi eliminadas");
-    return ESP_OK;
-}
-
 // Llena la estructura de estado con la información actual del Wi-Fi.
 void wifi_manager_get_status(wifi_manager_status_t *status)
 {
