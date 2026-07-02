@@ -16,6 +16,7 @@ idf_component_register(SRCS
                     touchpad
                     lcd_port
                     lcd_manager
+                    shared
                     
                     qr_handler
                     INCLUDE_DIRS ".")

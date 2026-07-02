@@ -18,7 +18,7 @@ typedef struct {
 typedef struct {
     Product product;
     time_t timestamp;
-    char state[16]; // OK, ERROR o ingreso MANUAL
+    char state[16];   
 } HistoryEntry;
 
 #define CATALOGO_SIZE 30

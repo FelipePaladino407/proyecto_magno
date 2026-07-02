@@ -1,0 +1,19 @@
+menu "Proyecto Magno"
+
+choice PROYECTO_DEVICE_ROLE
+    prompt "Rol de esta placa"
+    default PROYECTO_DEVICE_ROLE_LCD
+    help
+        Elegir que perifericos y flujo levanta esta placa.
+        LCD: touch + LCD + product_db + FSM principal.
+        CAM: camara QR + MQTT + pending_queue de scans.
+
+config PROYECTO_DEVICE_ROLE_LCD
+    bool "Placa LCD + Touch"
+
+config PROYECTO_DEVICE_ROLE_CAM
+    bool "Placa Camara QR"
+
+endchoice
+
+endmenu
