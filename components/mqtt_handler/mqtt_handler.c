@@ -631,7 +631,7 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
 #else
         ESP_LOGW(TAG, "CAM recibio mensaje inesperado en topic: %s", topic);//no deberia pasar
         {
-            char logi_mqtt[160];
+            char logi_mqtt[180];
             snprintf(logi_mqtt, sizeof(logi_mqtt),
                      "W: CAM recibio mensaje inesperado topic=%s", topic);
             procesar_y_publicar_LOGI(logi_mqtt);
