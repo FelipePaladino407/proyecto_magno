@@ -7,8 +7,9 @@
 #include "shared_types.h"
 
 /*
- * La FSM se piensa como la lógica de la placa 2:
- * recibe QR ya decodificados, pregunta por LCD/touch, actualiza stock y publica.
+ * La FSM se piensa como la lógica de la placa LCD:
+ * recibe QR ya decodificados, consulta product_db, muestra UI, recibe touch,
+ * actualiza stock local y pide publicar por MQTT.
  */
 typedef enum {
     EV_WIFI_CONNECT_SUCCESS,
@@ -29,7 +30,7 @@ typedef enum {
     EV_TIMEOUT
 } EventType;
 
-/* Alias semánticos: el touch tiene SELECT/EXIT, la FSM los interpreta como confirmar/cancelar. */
+/* Alias semánticos: el touch tiene SELECT/EXIT; la FSM los interpreta como confirmar/cancelar. */
 #define EV_BTN_CONFIRM EV_BTN_SELECT
 #define EV_BTN_CANCEL  EV_BTN_EXIT
 
@@ -44,11 +45,25 @@ typedef enum {
     STATE_MQTT_INIT,
     STATE_MQTT_PUBLISHING,
     STATE_ERROR_DISPLAY,
+
+    /* Alias de compatibilidad con nombres anteriores. */
     STATE_MANUAL_SELECTION = STATE_QUANTITY_SELECTION,
     STATE_PROMPT_ADD_NEW = STATE_PROMPT_ADD_PRODUCT
 } State;
 
 typedef struct {
+    /*
+     * Callbacks de UI. Son semánticos para que la FSM no dependa de lcd_manager,
+     * pero lcd_manager tampoco tenga que adivinar por strings qué pantalla mostrar.
+     */
+    void (*show_waiting)(void);
+    void (*show_product_prompt)(const Product *product, uint32_t add_amount);
+    void (*show_quantity_selection)(const Product *product, uint32_t add_amount);
+    void (*show_success)(const Product *product);
+    void (*show_cancelled)(void);
+    void (*show_error)(const char *message);
+
+    /* Callbacks viejos/fallback para tests o demos sin LCD real. */
     void (*display_product)(const Product *product);
     void (*display_message)(const char *title, const char *message);
 
@@ -77,6 +92,7 @@ void fsm_set_active_product(Product prod);
 
 uint32_t fsm_get_selected_quantity(void);
 void fsm_set_selected_quantity(uint32_t quantity);
+
 
 #endif // FSM_H
 

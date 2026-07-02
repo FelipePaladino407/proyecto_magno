@@ -32,21 +32,8 @@ static Logger *logger_recibido_mqtt = NULL;
 ///////////////////////////////
 //Parametros de conexion MQTT//
 ///////////////////////////////
-
-/*
- * CAMBIO RESPECTO AL ARCHIVO ORIGINAL DEL EQUIPO MQTT:
- * antes DEVICE_ID y DEVICE_IS_LCD quedaban hardcodeados a mano dentro del .c.
- * Ahora se dejan configurables desde CMake/menu de compilacion.
- * Si no se define nada, este proyecto compila como LCD para sostener la demo actual.
- *
- * Para compilar CAM:
- *   target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_IS_LCD=0)
- *
- * Para compilar LCD:
- *   target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_IS_LCD=1)
- */
 #ifndef DEVICE_IS_LCD
-#define DEVICE_IS_LCD 1
+#define DEVICE_IS_LCD 0
 #endif
 
 #if DEVICE_IS_LCD
@@ -59,6 +46,7 @@ static const char *DEVICE_ID = "CAM_01";
 static const char *HIVEMQ_URI         = "mqtt://broker.hivemq.com:1883";
 static const char *TOPIC_COMUNICACION = "ucuiot/magno/x7k2/scan";      // CAM -> LCD + ThingsBoard Integration
 static const char *TOPIC_TELEMETRY_HV = "ucuiot/magno/x7k2/telemetry"; // LCD -> ThingsBoard Integration
+static const char *TOPIC_LOGI         = "ucuiot/magno/x7k2/LOGI";
 
 static void safe_copy(char *dest, const char *src, size_t dest_size)
 {
@@ -117,6 +105,7 @@ static time_t timestamp_or_fallback(void)
  * La CAM publica scans hacia TOPIC_COMUNICACION.
  * La LCD publica eventos finales/fake demo hacia TOPIC_TELEMETRY_HV para el dashboard.
  */
+ 
 static const char *topic_salida(void)
 {
 #if DEVICE_IS_LCD
@@ -144,7 +133,7 @@ static bool construir_payload_plano(char *payload,
 
     int written = snprintf(payload,
                            payload_size,
-                           "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\"," 
+                           "{\"device_id\":\"%s\",\"id\":\"%s\",\"producto\":\"%s\","
                            "\"stock\":%lu,\"timestamp\":%lld,\"estado\":\"%s\"}",
                            device_id,
                            producto.id,
@@ -205,15 +194,35 @@ static bool publicar_evento_con_timestamp(Product producto,
  * CAMBIO AGREGADO:
  * funcion comun para guardar eventos offline.
  */
-static bool guardar_pendiente(Product producto, const char *estado, const char *topic, time_t timestamp)
+static bool guardar_pendiente(Product producto,
+                              const char *estado,
+                              const char *topic,
+                              time_t timestamp)
 {
+    if (estado == NULL) {
+        estado = "OK";
+    }
+
+    if (topic == NULL) {
+        topic = TOPIC_TELEMETRY_HV;
+    }
+
     if (timestamp == 0) {
         timestamp = timestamp_or_fallback();
     }
 
     bool ok = pending_queue_push(producto, timestamp, estado, topic);
-    if (!ok) {
-        ESP_LOGE(TAG, "No se pudo guardar evento pendiente en NVS");
+
+    if (ok) {
+        ESP_LOGI(TAG,
+                 "Evento guardado pendiente -> topic=%s | id=%s | nombre=%s | stock=%lu | estado=%s",
+                 topic,
+                 producto.id,
+                 producto.name,
+                 (unsigned long)producto.stock,
+                 estado);
+    } else {
+        ESP_LOGE(TAG, "No se pudo guardar evento pendiente");
     }
 
     return ok;
@@ -266,12 +275,14 @@ void mqtt_handler_set_loggers(Logger *logger_local, Logger *logger_recibido)
 }
 
 /*
- * CAMBIO IMPORTANTE:
- * Se conserva la idea del equipo MQTT: si la LCD recibe un scan de CAM,
- * NO lo manda a la FSM. Lo reenvia directo a TOPIC_TELEMETRY_HV para que
- * ThingsBoard/dashboard siga funcionando como antes.
+ * CAMBIO IMPORTANTE (combinado con tu fix de stock):
+ * La LCD ya NO reenvia directo a ThingsBoard aca. En cambio, arma un
+ * HistoryEntry y lo encola en fsm_mqtt_data_queue. La FSM lo recibe,
+ * actualiza el stock real en la hash table, y recien ahi llama a
+ * mqtt_reenviar_a_thingsboard() con el stock correcto.
  *
- * Si ese reenvio falla, ahora se guarda en pending_queue.
+ * Esto reemplaza el reenvio directo que tenia el doc 4 (que mandaba el
+ * stock del JSON recibido, sin pasar por la FSM).
  */
 static bool procesar_json_recibido(const char *mensaje)
 {
@@ -324,36 +335,13 @@ static bool procesar_json_recibido(const char *mensaje)
                  (unsigned long)producto_recibido.stock, (long long)timestamp, estado);
 
 #if DEVICE_IS_LCD
-        const char *device_id_origen = "UNKNOWN";
-        if (cJSON_IsString(device_id)) {
-            device_id_origen = device_id->valuestring;
-        }
-
-        char payload_tb[256];
-        bool payload_ok = construir_payload_plano(payload_tb,
-                                                  sizeof(payload_tb),
-                                                  device_id_origen,
-                                                  producto_recibido,
-                                                  timestamp,
-                                                  estado);
-
-        bool publicado = false;
-        if (payload_ok && cliente_hivemq != NULL) {
-            int msg_id = esp_mqtt_client_publish(cliente_hivemq, TOPIC_TELEMETRY_HV, payload_tb, 0, 1, 0);
-            publicado = msg_id >= 0;
-        }
-
-        if (publicado) {
-            ESP_LOGI(TAG, "LCD reenvio a ThingsBoard via HiveMQ: %s", payload_tb);
-        } else {
-            ESP_LOGW(TAG, "No se pudo reenviar a ThingsBoard. Guardando evento pendiente");
-
-            /*
-             * Limitacion conocida:
-             * pending_queue guarda product/state/timestamp/topic, pero no guarda device_id_origen.
-             * Al hacer flush, el payload saldra con DEVICE_ID local, normalmente LCD_01.
-             */
-            guardar_pendiente(producto_recibido, estado, TOPIC_TELEMETRY_HV, timestamp);
+        /*
+         * La camara solo informa que producto escaneo.
+         * El stock del JSON recibido no es fuente de verdad.
+         * La FSM/product_db calcularan el stock real luego de la confirmacion.
+         */
+        if (!fsm_on_qr_detected(producto_recibido.id, producto_recibido.name)) {
+            ESP_LOGW(TAG, "No se pudo enviar QR recibido por MQTT a la FSM");
         }
 #endif
 
@@ -365,6 +353,37 @@ static bool procesar_json_recibido(const char *mensaje)
     cJSON_Delete(json);
     return false;
 }
+
+/*
+ * Publica hacia ThingsBoard usando SIEMPRE el stock real almacenado en product_db.
+ * La FSM llama a procesar_y_publicar() despues de actualizar stock; desde ahi se
+ * arma el HistoryEntry y se entra a esta funcion.
+ */
+bool mqtt_reenviar_a_thingsboard(HistoryEntry entry)
+{
+    const char *estado = entry.state[0] != '\0' ? entry.state : "OK";
+
+    if (entry.timestamp == 0) {
+        entry.timestamp = timestamp_or_fallback();
+    }
+
+    Product producto_actual;
+    memset(&producto_actual, 0, sizeof(producto_actual));
+
+    if (!product_db_find_by_id(entry.product.id, &producto_actual)) {
+        ESP_LOGW(TAG,
+                 "No se pudo reenviar a ThingsBoard: producto no encontrado en product_db -> ID=%s",
+                 entry.product.id);
+        return false;
+    }
+
+    return publicar_evento_con_timestamp(producto_actual,
+                                         estado,
+                                         TOPIC_TELEMETRY_HV,
+                                         entry.timestamp,
+                                         true);
+}
+                              
 
 // ─── Event handler HiveMQ ────────────────────────────────────────────────────
 
@@ -486,18 +505,20 @@ static bool publicar_evento(Product producto, const char *estado)
     return publicar_evento_con_timestamp(producto, estado, topic, timestamp, true);
 }
 
-/*
- * Publica un producto valido con estado OK.
- *
- * CAMBIO DE LIMPIEZA:
- * Se vuelve al nombre original del equipo MQTT: procesar_y_publicar(...).
- * No se separa entre "QR" y "manual" porque hoy MQTT no necesita conocer
- * el origen del producto. La FSM puede haber confirmado un QR, una seleccion
- * manual o una cantidad, pero para MQTT el resultado es el mismo: producto OK.
- */
 bool procesar_y_publicar(Product producto)
 {
+#if DEVICE_IS_LCD
+    HistoryEntry entry;
+    memset(&entry, 0, sizeof(entry));
+
+    entry.product = producto;
+    entry.timestamp = timestamp_or_fallback();
+    safe_copy(entry.state, "OK", sizeof(entry.state));
+
+    return mqtt_reenviar_a_thingsboard(entry);
+#else
     return publicar_evento(producto, "OK");
+#endif
 }
 
 bool procesar_y_publicar_error(const char *mensaje_error)
@@ -521,6 +542,28 @@ bool procesar_y_publicar_error(const char *mensaje_error)
      * entonces se guardan aca si no se pudieron publicar.
      */
     return guardar_pendiente(producto_error, "ERROR", topic, 0);
+}
+
+/*
+ * CAMBIO AGREGADO (fix de compilacion respecto a tu version):
+ * Tu version tenia `bool procesar_y_publicar_LOGI(char *LOGI)` haciendo
+ * esp_mqtt_client_publish(..., *LOGI, ...), lo cual desreferencia el
+ * puntero (pasa un char en vez de char*) y no compila. Se corrige la firma
+ * y se valida cliente_hivemq antes de publicar.
+ */
+bool procesar_y_publicar_LOGI(const char *LOGI)
+{
+    if (LOGI == NULL) {
+        return false;
+    }
+
+    if (cliente_hivemq == NULL) {
+        ESP_LOGW(TAG, "HiveMQ no conectado, no se publica LOGI");
+        return false;
+    }
+
+    int msg_id = esp_mqtt_client_publish(cliente_hivemq, TOPIC_LOGI, LOGI, 0, 1, 0);
+    return msg_id >= 0;
 }
 
 /*
@@ -582,4 +625,3 @@ bool mqtt_handler_flush_pending(void)
     ESP_LOGI(TAG, "Todos los eventos pendientes fueron reenviados");
     return true;
 }
-
