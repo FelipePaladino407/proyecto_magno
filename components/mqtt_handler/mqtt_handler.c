@@ -133,13 +133,6 @@ static bool enqueue_scan_for_fsm(const Product *scan)//recibe la direccion de un
     }
 
     ESP_LOGI(TAG, "Scan MQTT encolado para FSM -> ID=%s | Nombre=%s", scan->id, scan->name);
-    {
-        char logi_mqtt[128];
-        snprintf(logi_mqtt, sizeof(logi_mqtt),
-                 "I: Scan MQTT encolado para FSM ID=%s nombre=%s",
-                 scan->id, scan->name);
-        procesar_y_publicar_LOGI(logi_mqtt);
-    }
     return true;
 }
 #endif
@@ -320,12 +313,6 @@ static bool publicar_evento_con_timestamp(Product producto,
     }
 
     ESP_LOGI(TAG, "Publicado en %s: %s", topic, payload);
-    {
-        char logi_mqtt[160];
-        snprintf(logi_mqtt, sizeof(logi_mqtt),
-                 "I: Publicado en %s", topic);
-        procesar_y_publicar_LOGI(logi_mqtt);
-    }
     return true;
 }
 
@@ -414,13 +401,6 @@ static void publicar_catalogo_inicial(esp_mqtt_client_handle_t client)//se ejecu
 
         ESP_LOGI(TAG, "Catalogo inicial publicado [%d/%d]: %s",
                  i, (int)CATALOGO_SIZE, payload);
-        {
-            char logi_mqtt[128];
-            snprintf(logi_mqtt, sizeof(logi_mqtt),
-                     "I: Catalogo inicial publicado %d/%d",
-                     i, (int)CATALOGO_SIZE);
-            procesar_y_publicar_LOGI(logi_mqtt);
-        }
 
         vTaskDelay(pdMS_TO_TICKS(200));
     }
@@ -496,13 +476,6 @@ static bool procesar_json_recibido(const char *mensaje)
         ESP_LOGI(TAG, "Struct reconstruido -> ID: %s, Nombre: %s, Stock: %lu, Timestamp: %lld, Estado: %s",
                  producto_recibido.id, producto_recibido.name,
                  (unsigned long)producto_recibido.stock, (long long)timestamp, estado);
-        {
-            char logi_mqtt[160];
-            snprintf(logi_mqtt, sizeof(logi_mqtt),
-                     "I: Struct MQTT reconstruido ID=%s nombre=%s estado=%s",
-                     producto_recibido.id, producto_recibido.name, estado);
-            procesar_y_publicar_LOGI(logi_mqtt);
-        }
 
 #if DEVICE_IS_LCD
         /*
@@ -646,19 +619,7 @@ static void mqtt_hivemq_event_handler(void *handler_args, esp_event_base_t base,
         memcpy(mensaje, event->data,  data_len);   mensaje[data_len]  = '\0';//para poder tratarlo como un string 
 
         ESP_LOGI(TAG, "HiveMQ mensaje en topic: %s", topic);
-        {
-            char logi_mqtt[160];
-            snprintf(logi_mqtt, sizeof(logi_mqtt),
-                     "I: HiveMQ mensaje recibido topic=%s", topic);
-            procesar_y_publicar_LOGI(logi_mqtt);
-        }
         ESP_LOGI(TAG, "HiveMQ datos: %s", mensaje);
-        {
-            char logi_mqtt[160];
-            snprintf(logi_mqtt, sizeof(logi_mqtt),
-                     "I: HiveMQ datos recibidos %.100s", mensaje);
-            procesar_y_publicar_LOGI(logi_mqtt);
-        }
 
 #if DEVICE_IS_LCD
         if (strcmp(topic, TOPIC_COMUNICACION) == 0) {//si el topico es el de comunicacion entre la camara y la LCD,entonces se procesa el mensaje recibido
@@ -853,7 +814,6 @@ bool mqtt_handler_flush_pending(void)//devuelve true si pudo reenviar todos los 
     int count = pending_queue_count();//ve la cantidad de productos a enviar
     if (count == 0) {
         ESP_LOGI(TAG, "No hay eventos pendientes para reenviar");
-        procesar_y_publicar_LOGI("I: No hay eventos pendientes para reenviar");
         return true;//salio bien ,se quiso reenviar cuando volvio la conexion solo que no habai nada que enviar entonces true
     }
 
@@ -896,5 +856,42 @@ bool mqtt_handler_flush_pending(void)//devuelve true si pudo reenviar todos los 
     procesar_y_publicar_LOGI("I: Todos los eventos pendientes fueron reenviados");
     return true;
 }
-
-
+/*
+ * Mejoras futuras / limitaciones:
+ *
+ * - Agregar una cola para los LOGI/W/E enviados por MQTT. Ahora  si HiveMQ
+ *   está desconectado, esos mensajes no se publican y se pierden. La pending_queue
+ *   guarda eventos de productos, no mensajes de log genericos
+ *
+ * - Mejorar el envío de LOGI con variables. Ahora varios mensajes se arman a manopla
+ *   con buffers locales y snprintf; a futuro se podria hacer una función auxiliar
+ *   que reciba el formato y arme el string internamente, para dejar el codigo más limpio
+ *
+ * - Se evita publicar logs MQTT desde eventos generados por la propia publicación,
+ *   como MQTT_EVENT_PUBLISHED, para no provocar un bucle de mensajes. Aparte los
+ *   problemas asociados a la conexión con el broker no siempre pueden enviarse por MQTT,
+ *   porque si la conexión fallo no hay canal disponible para publicarlos
+ *
+ * - Separar mejor el log mandado por MQTT del mqtt_handler.c. Actualmente la función
+ *   procesar_y_publicar_LOGI() está dentro del modulo MQTT, por lo que usarla desde
+ *   otros módulos aumenta el acoplamiento entre archivos y bueno puede generar dependencia cirucalar. 
+ *   A futuro podria hacerse un modulo aparte , cuidando que no dependa circularmente de MQTT
+ *   o de la FSM
+ *
+ * - Hay que revisar los tamaños de buffers usados para mensajes recibidos, payloads y LOGI.
+ *   Si un mensaje es más largo de lo esperado, puede quedar truncado. No necesariamente
+ *   rompe el programa, pero se puede perder parte de la información o bueno dar mas espacio
+ *   del necesario no optimizando el codigo
+ *
+ * - Agregar reintentos de sincronización NTP si la hora no se obtiene al inicio.
+ *   Actualmente mqtt_handler.c usa una función auxiliar para asegurar que el timestamp
+ *   no sea 0, porque la pendng_queue rechaza eventos con timestamp 0 y eso no se supo hasta hace poco.
+ *   Sería más prolijo resolver esto desde ntp.c o con una política común de tiempo válido
+ *
+ * - Evaluar reducir escrituras en NVS del logger si se generan muchos eventos seguidos.
+ *   Actualmente cada logger_push() guarda el buffer completo y los índices en NVS.
+ *   A futuro se podría guardar cada cierto tiempo o cada cierta cantidad de eventos ,
+ *   usando un contador. En esta versión se eligio guardar cada evento para comprobar
+ *    el funcionamiento de la persistencia en NVS, aunque a largo plazo no
+ *   ir sobreescribiendo la memoria flash a cada rato (se desgasta)
+ */
