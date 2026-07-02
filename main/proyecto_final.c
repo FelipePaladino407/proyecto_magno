@@ -177,42 +177,6 @@ static void load_catalog(void)
              CATALOGO_SIZE);
 }
 
-static void touchpad_task(void *pvParameters) /*    Task que lee inputs del touchpad y envia eventos al fsm*/
-{
-    (void)pvParameters;
-
-    static const EventType event_map[TOUCHPAD_NUM_BUTTONS] = {
-        EV_BTN_UP,      /*  Boton VOL_UP     */
-        EV_BTN_CONFIRM, /*  Boton PLAY/PAUSE */
-        EV_BTN_DOWN,    /*  Boton VOL_DOWN   */
-        EV_BTN_CANCEL,  /*  Boton RECORD     */
-    };
-
-    static const char *button_names[TOUCHPAD_NUM_BUTTONS] = {
-        "VOL_UP (contador +)",
-        "PLAY/PAUSE (confirmar)",
-        "VOL_DOWN (contador -)",
-        "RECORD (cancelar)",
-    };
-
-    EventType event;
-    bool was_pressed[TOUCHPAD_NUM_BUTTONS] = {false};
-while (1) {   
-            for (uint8_t i = 0; i < TOUCHPAD_NUM_BUTTONS; i++){
-            bool pressed = touchpad_is_pressed(i);
-            
-            if (pressed && !was_pressed[i]) {   // Detecta el flanco de subida (botón presionado)
-                event = event_map[i];
-                xQueueSend(fsm_event_queue, &event, portMAX_DELAY);
-                ESP_LOGI(TAG, "boton %s presionado, enviando evento %d", button_names[i], event);
-            }
-            was_pressed[i] = pressed;
-        }
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-}
-
-
 void app_main(void)
 {
     fsm_event_queue = xQueueCreate(20, sizeof(EventType));
@@ -266,7 +230,7 @@ void app_main(void)
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
 #endif
 
-    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL); /* Crea la task para leer el touchpad */
+    touchpad_start_task(); /* Inicia la task de polling del touchpad */
     
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(2000));

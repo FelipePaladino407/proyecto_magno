@@ -4,6 +4,11 @@
 #include <string.h>
 
 #include "driver/touch_sens.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+
+#include "fsm.h"
 
 static const char *TAG = "TOUCHPAD";
 
@@ -21,8 +26,32 @@ static touch_sensor_handle_t  s_sens_handle = NULL; // handle del sensor
 static touch_channel_handle_t s_chan_handle[TOUCHPAD_CHANNEL_NUM];  // handles de los canales
 static uint32_t               s_threshold[TOUCHPAD_CHANNEL_NUM][TOUCH_SAMPLE_CFG_NUM];
 static bool                   s_init_done = false;   // flag que indica si el touchpad fue inicializado
+static TaskHandle_t          s_task_handle = NULL;   // handle de la task
 
-/* ─── Escaneo inicial y calibración ─────────────────────────────── */
+/* ─── Configuración de la task ───────────────────────────────────── */
+
+#define TOUCHPAD_TASK_STACK_SIZE 4096 
+#define TOUCHPAD_TASK_PRIORITY   1
+#define TOUCHPAD_POLL_PERIOD_MS    50   // frecuencia de polling de los botones
+#define TOUCHPAD_QUEUE_SEND_TIMEOUT_MS 100  // tiempo de espera despues de enviar un evento a fsm_event_queue
+
+extern QueueHandle_t fsm_event_queue;  // cola de eventos de la FSM, definida en fsm.c
+
+static const EventType event_map[TOUCHPAD_CHANNEL_NUM] = {
+    EV_BTN_UP,      /*  Boton VOL_UP     */
+    EV_BTN_CONFIRM, /*  Boton PLAY/PAUSE */
+    EV_BTN_DOWN,    /*  Boton VOL_DOWN   */
+    EV_BTN_CANCEL,  /*  Boton RECORD     */
+};
+
+static const char *button_names[TOUCHPAD_CHANNEL_NUM] = {
+    "VOL_UP (contador +)",
+    "PLAY/PAUSE (confirmar)",
+    "VOL_DOWN (contador -)",
+    "RECORD (cancelar)",
+};
+
+/* ─── Escaneo inicial y calibración ──────────────────────────────── */
 
 static void touchpad_initial_scanning(void)
 {
@@ -62,6 +91,34 @@ static void touchpad_initial_scanning(void)
 
         ESP_LOGI(TAG, "\n");
         ESP_ERROR_CHECK(touch_sensor_reconfig_channel(s_chan_handle[i], &chan_cfg));
+    }
+}
+
+/* ─── Task ───────────────────────────────────────────────────────── */
+
+static void touchpad_task(void *pvParameters){
+    (void)pvParameters;
+
+    bool was_pressed[TOUCHPAD_CHANNEL_NUM] = {false};
+    TickType_t last_wake_time = xTaskGetTickCount();
+
+    ESP_LOGI(TAG, "touchpad_task iniciada");
+
+    while (1){
+        for (uint8_t i = 0; i < TOUCHPAD_CHANNEL_NUM; i++){
+            bool pressed = touchpad_is_pressed(i);
+
+            if (pressed && !was_pressed[i]){
+                EventType event = event_map[i];
+                if (xQueueSend(fsm_event_queue, &event, pdMS_TO_TICKS(TOUCHPAD_QUEUE_SEND_TIMEOUT_MS)) != 1){
+                    ESP_LOGW(TAG, "No se pudo enviar evento %d a la cola de FSM", button_names[i]);
+                } else {
+                    ESP_LOGI(TAG, "Evento %d enviado a la cola de FSM", button_names[i]);
+                }
+            }
+            was_pressed[i] = pressed;
+        }
+        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TOUCHPAD_POLL_PERIOD_MS));
     }
 }
 
@@ -157,4 +214,25 @@ bool touchpad_is_pressed(uint8_t button_index)
     }
 
     return false;
+}
+
+void touchpad_start_task(void)
+{
+    if (!s_init_done) {
+        ESP_LOGW(TAG, "touchpad_start_task: touchpad no inicializado");
+        return;
+    }
+
+    if (fsm_event_queue == NULL) {
+        ESP_LOGW(TAG, "touchpad_start_task: fsm_event_queue no inicializada");
+        return;
+    }
+
+    if (s_task_handle != NULL) {
+        ESP_LOGW(TAG, "touchpad_start_task: task ya iniciada");
+        return;
+    }
+
+    xTaskCreate(&touchpad_task, "touchpad_task", TOUCHPAD_TASK_STACK_SIZE, NULL, TOUCHPAD_TASK_PRIORITY, &s_task_handle);
+
 }
