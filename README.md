@@ -1,5 +1,6 @@
 # Proyecto Final
 
+
 ## Contribuciones
 
 Como este repositorio va a ser utilizado por todos, vamos a tratar que todas las contribuciones sigan el siguiente flujo de trabajo, esto es para evitar conflictos innecesarios y que todo sea un caos:
@@ -80,3 +81,7 @@ En caso de que una PR sea rechazada, simplemente corregí lo que este mal en la 
 #### Cosas que estarían buenísimas
 La convención que seguimos en clase para la indentación de código es de 4 espacios, dicha indentación la hace automáticamente el formatter que usan en su IDE o editor de preferencia,
 estaría ***buenísimo*** que si lo tienen configurado en 2 espacios por ejemplo, lo pasen a 4.
+
+----
+
+## Nota: Debido a múltiples circunstancias, Nicolás Meyer no efectuó commits durante el transcurso del proyecto, no obstante, este trabajó arduamente en la implementación del dashboard de ThingsBoard, MQTT Handler, en el marco de lo asignado al grupo EAMTA.
