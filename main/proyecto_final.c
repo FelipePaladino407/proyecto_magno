@@ -46,7 +46,7 @@ static Logger logger_recibido;
  *   con los botones touch reales.
  * - La LCD es real: la FSM llama a lcd_manager mediante callbacks.
  */
-#define ENABLE_FAKE_QR_DEMO 0
+#define ENABLE_FAKE_QR_DEMO 1
 
 #if DEVICE_IS_CAM
 static void safe_copy_main(char *dest, const char *src, size_t dest_size)

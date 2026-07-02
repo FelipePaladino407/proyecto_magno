@@ -1,6 +1,6 @@
 #
 # Automatically generated file. DO NOT EDIT.
-# Espressif IoT Development Framework (ESP-IDF) 6.0.1 Project Configuration
+# Espressif IoT Development Framework (ESP-IDF) 6.0.0 Project Configuration
 #
 # default:
 CONFIG_SOC_ADC_SUPPORTED=y
@@ -211,8 +211,6 @@ CONFIG_SOC_GPIO_CLOCKOUT_BY_IO_MUX=y
 # default:
 CONFIG_SOC_GPIO_CLOCKOUT_CHANNEL_NUM=3
 # default:
-CONFIG_SOC_RTC_CNTL_NEEDS_ATOMIC_ACCESS=y
-# default:
 CONFIG_SOC_DEDIC_GPIO_HAS_INTERRUPT=y
 # default:
 CONFIG_SOC_I2C_NUM=2
@@ -307,7 +305,13 @@ CONFIG_SOC_SPI_SCT_CONF_BITLEN_MAX=0x7FFFFD
 # default:
 CONFIG_SOC_MEMSPI_IS_INDEPENDENT=y
 # default:
-CONFIG_SOC_MEMSPI_ENCRYPTION_ALIGNMENT=16
+CONFIG_SOC_MEMSPI_SRC_FREQ_80M_SUPPORTED=y
+# default:
+CONFIG_SOC_MEMSPI_SRC_FREQ_40M_SUPPORTED=y
+# default:
+CONFIG_SOC_MEMSPI_SRC_FREQ_26M_SUPPORTED=y
+# default:
+CONFIG_SOC_MEMSPI_SRC_FREQ_20M_SUPPORTED=y
 # default:
 CONFIG_SOC_SYSTIMER_COUNTER_NUM=1
 # default:
@@ -557,11 +561,6 @@ CONFIG_APP_BUILD_USE_FLASH_SECTIONS=y
 # default:
 # CONFIG_APP_NO_BLOBS is not set
 # end of Build type
-
-#
-# App Update config
-#
-# end of App Update config
 
 #
 # Bootloader config
@@ -1800,8 +1799,6 @@ CONFIG_ESP_WIFI_MBEDTLS_TLS_CLIENT=y
 CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=y
 # default:
 # CONFIG_ESP_WIFI_ENT_FREE_DYNAMIC_BUFFER is not set
-# default:
-# CONFIG_ESP_WIFI_PASSIVE_HIDDEN_AP_SUPPORT is not set
 # end of Wi-Fi
 
 #
@@ -2751,8 +2748,6 @@ CONFIG_MBEDTLS_PKCS1_V21=y
 # CONFIG_NVS_ALLOCATE_CACHE_IN_SPIRAM is not set
 # default:
 # CONFIG_NVS_BDL_STACK is not set
-# default:
-# CONFIG_NVS_FLASH_VERIFY_ERASE is not set
 # end of NVS
 
 #
@@ -2910,8 +2905,6 @@ CONFIG_VFS_SUPPRESS_SELECT_DEBUG_OUTPUT=y
 # CONFIG_VFS_SUPPORT_TERMIOS is not set
 # default:
 CONFIG_VFS_MAX_COUNT=8
-# default:
-# CONFIG_VFS_SUPPRESS_CTX_DEPRECATION is not set
 
 #
 # Host File System I/O (Semihosting)
