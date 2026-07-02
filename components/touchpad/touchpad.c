@@ -94,31 +94,66 @@ static void touchpad_initial_scanning(void)
     }
 }
 
+/* ─── Detecta cuando se apreta un boton ───────────────────────────────────────────────────────── */
+
+static bool touchpad_is_pressed(uint8_t button_index)
+{
+    if (!s_init_done || button_index >= TOUCHPAD_CHANNEL_NUM) {  // chequea si no está inicializado o el índice es inválido
+        return false;                                            // si se cumple alguna, devuelve false
+    }
+
+    uint32_t smooth[TOUCH_SAMPLE_CFG_NUM];  // lee el valor filtrado de la señal
+    memset(smooth, 0, sizeof(smooth));
+
+    if (touch_channel_read_data(s_chan_handle[button_index],TOUCH_CHAN_DATA_TYPE_SMOOTH,smooth) != ESP_OK) {
+        return false;
+    }
+
+    uint32_t benchmark[TOUCH_SAMPLE_CFG_NUM];   // lee el benchmark de la señal
+        memset(benchmark, 0, sizeof(benchmark));
+
+    if (touch_channel_read_data(s_chan_handle[button_index],TOUCH_CHAN_DATA_TYPE_BENCHMARK,benchmark) != ESP_OK) {
+        return false;
+    }
+
+    /*
+     * ESP32-S2 hw_ver2: se activa cuando (smooth - benchmark) >= umbral.
+     * Basta que UNA muestra supere para considerar el canal presionado.
+     */
+    for (int j = 0; j < TOUCH_SAMPLE_CFG_NUM; j++) {
+        if (smooth[j] > benchmark[j] && (smooth[j] - benchmark[j]) >= s_threshold[button_index][j]) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /* ─── Task ───────────────────────────────────────────────────────── */
 
-static void touchpad_task(void *pvParameters){
+static void touchpad_task(void *pvParameters){  // Task que hace polling continuo de los botones y envía eventos a la cola de FSM
     (void)pvParameters;
 
-    bool was_pressed[TOUCHPAD_CHANNEL_NUM] = {false};
-    TickType_t last_wake_time = xTaskGetTickCount();
+    bool was_pressed[TOUCHPAD_CHANNEL_NUM] = {false};   // guarda el estado anterior de cada botón
+    TickType_t last_wake_time = xTaskGetTickCount();    // para usar vTaskDelayUntil() y mantener un periodo constante
 
     ESP_LOGI(TAG, "touchpad_task iniciada");
 
     while (1){
-        for (uint8_t i = 0; i < TOUCHPAD_CHANNEL_NUM; i++){
-            bool pressed = touchpad_is_pressed(i);
+        for (uint8_t i = 0; i < TOUCHPAD_CHANNEL_NUM; i++){ // por cada botón
+            bool pressed = touchpad_is_pressed(i);  // chequea si el botón está presionado
 
-            if (pressed && !was_pressed[i]){
-                EventType event = event_map[i];
-                if (xQueueSend(fsm_event_queue, &event, pdMS_TO_TICKS(TOUCHPAD_QUEUE_SEND_TIMEOUT_MS)) != 1){
-                    ESP_LOGW(TAG, "No se pudo enviar evento %d a la cola de FSM", button_names[i]);
+            if (pressed && !was_pressed[i]){    // si el botón acaba de ser presionado (flanco ascendente)
+                EventType event = event_map[i];     // obtiene el evento correspondiente al botón
+                if (xQueueSend(fsm_event_queue, &event, pdMS_TO_TICKS(TOUCHPAD_QUEUE_SEND_TIMEOUT_MS)) != 1){   // intenta enviar el evento a la cola de FSM
+                    ESP_LOGW(TAG, "No se pudo enviar evento %d a la cola de FSM", button_names[i]); // si falla, loguea un warning
                 } else {
-                    ESP_LOGI(TAG, "Evento %d enviado a la cola de FSM", button_names[i]);
+                    ESP_LOGI(TAG, "Evento %d enviado a la cola de FSM", button_names[i]);   // si se envía correctamente, loguea un info
                 }
             }
-            was_pressed[i] = pressed;
+            was_pressed[i] = pressed;   // actualiza el estado anterior del botón
         }
-        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TOUCHPAD_POLL_PERIOD_MS));
+        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TOUCHPAD_POLL_PERIOD_MS));   // espera hasta el siguiente periodo de polling
     }
 }
 
@@ -181,39 +216,6 @@ void touchpad_init(void)
         ESP_LOGI(TAG, "%d%s", s_channel_id[i],
                  i < TOUCHPAD_CHANNEL_NUM - 1 ? ", " : "\n");
     }
-}
-
-bool touchpad_is_pressed(uint8_t button_index)
-{
-    if (!s_init_done || button_index >= TOUCHPAD_CHANNEL_NUM) {  // chequea si no está inicializado o el índice es inválido
-        return false;                                            // si se cumple alguna, devuelve false
-    }
-
-    uint32_t smooth[TOUCH_SAMPLE_CFG_NUM];  // lee el valor filtrado de la señal
-    memset(smooth, 0, sizeof(smooth));
-
-    if (touch_channel_read_data(s_chan_handle[button_index],TOUCH_CHAN_DATA_TYPE_SMOOTH,smooth) != ESP_OK) {
-        return false;
-    }
-
-    uint32_t benchmark[TOUCH_SAMPLE_CFG_NUM];   // lee el benchmark de la señal
-        memset(benchmark, 0, sizeof(benchmark));
-
-    if (touch_channel_read_data(s_chan_handle[button_index],TOUCH_CHAN_DATA_TYPE_BENCHMARK,benchmark) != ESP_OK) {
-        return false;
-    }
-
-    /*
-     * ESP32-S2 hw_ver2: se activa cuando (smooth - benchmark) >= umbral.
-     * Basta que UNA muestra supere para considerar el canal presionado.
-     */
-    for (int j = 0; j < TOUCH_SAMPLE_CFG_NUM; j++) {
-        if (smooth[j] > benchmark[j] && (smooth[j] - benchmark[j]) >= s_threshold[button_index][j]) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 void touchpad_start_task(void)
