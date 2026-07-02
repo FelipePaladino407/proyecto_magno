@@ -25,6 +25,16 @@ typedef struct {
 static HashTable s_product_table;
 
 /**
+ * @brief Buffer global usado para serializar y restaurar product_db sin consumir pila.
+ *
+ * El snapshot ocupa varios kilobytes porque contiene la HashTable completa. Por
+ * eso no debe declararse como variable local dentro de product_db_save_snapshot()
+ * ni product_db_load_snapshot(), ya que esas funciones se ejecutan desde la task
+ * main y podrian provocar stack overflow.
+ */
+static ProductDbSnapshot s_snapshot_buffer;
+
+/**
  * @brief Copia una cadena a un buffer de destino garantizando terminacion nula.
  *
  * @param dest Buffer de destino.
@@ -90,7 +100,8 @@ static bool product_db_table_is_valid(const HashTable *table)
  *
  * Se persiste la HashTable completa como un BLOB versionado. De esta forma, al
  * reiniciar o volver a flashear la aplicacion sin hacer erase-flash, se puede
- * reconstruir la base local con los stocks ya modificados.
+ * reconstruir la base local con los stocks ya modificados. Usa un buffer global
+ * para no reservar el snapshot completo en la pila de la task main.
  *
  * @return true si el snapshot se guardo correctamente; false si NVS fallo.
  */
@@ -101,16 +112,17 @@ static bool product_db_save_snapshot(void)
         return false;
     }
 
-    ProductDbSnapshot snapshot = {
-        .magic = PRODUCT_DB_SNAPSHOT_MAGIC,
-        .version = PRODUCT_DB_SNAPSHOT_VERSION,
-        .table_size = HASH_TABLE_SIZE,
-        .table = s_product_table,
-    };
+    ProductDbSnapshot *snapshot = &s_snapshot_buffer;
+
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->magic = PRODUCT_DB_SNAPSHOT_MAGIC;
+    snapshot->version = PRODUCT_DB_SNAPSHOT_VERSION;
+    snapshot->table_size = HASH_TABLE_SIZE;
+    snapshot->table = s_product_table;
 
     esp_err_t err = nvs_storage_set_blob(PRODUCT_DB_NVS_KEY,
-                                         &snapshot,
-                                         sizeof(snapshot));
+                                         snapshot,
+                                         sizeof(*snapshot));
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
                  "No se pudo guardar product_db en NVS: %s",
@@ -126,7 +138,7 @@ static bool product_db_save_snapshot(void)
  *
  * Si no hay datos persistidos o el snapshot no coincide con la version actual,
  * la funcion deja la tabla RAM como estaba y permite que el catalogo se cargue
- * desde cero.
+ * desde cero. Usa un buffer global para evitar stack overflow al arrancar.
  *
  * @return true si se cargo una tabla valida desde NVS; false si no habia datos
  * persistidos o si no eran validos.
@@ -138,15 +150,16 @@ static bool product_db_load_snapshot(void)
         return false;
     }
 
-    ProductDbSnapshot snapshot;
-    memset(&snapshot, 0, sizeof(snapshot));
+    ProductDbSnapshot *snapshot = &s_snapshot_buffer;
 
-    size_t snapshot_size = sizeof(snapshot);
+    memset(snapshot, 0, sizeof(*snapshot));
+
+    size_t snapshot_size = sizeof(*snapshot);
     esp_err_t err = nvs_storage_get_blob(PRODUCT_DB_NVS_KEY,
-                                         &snapshot,
+                                         snapshot,
                                          &snapshot_size);
 
-    if (err == ESP_ERR_NOT_FOUND) {
+    if (nvs_storage_err_is_not_found(err)) {
         ESP_LOGI(TAG, "No habia product_db persistida en NVS");
         return false;
     }
@@ -158,16 +171,16 @@ static bool product_db_load_snapshot(void)
         return false;
     }
 
-    if (snapshot_size != sizeof(snapshot) ||
-        snapshot.magic != PRODUCT_DB_SNAPSHOT_MAGIC ||
-        snapshot.version != PRODUCT_DB_SNAPSHOT_VERSION ||
-        snapshot.table_size != HASH_TABLE_SIZE ||
-        !product_db_table_is_valid(&snapshot.table)) {
+    if (snapshot_size != sizeof(*snapshot) ||
+        snapshot->magic != PRODUCT_DB_SNAPSHOT_MAGIC ||
+        snapshot->version != PRODUCT_DB_SNAPSHOT_VERSION ||
+        snapshot->table_size != HASH_TABLE_SIZE ||
+        !product_db_table_is_valid(&snapshot->table)) {
         ESP_LOGW(TAG, "Snapshot product_db invalido o incompatible. Se ignora");
         return false;
     }
 
-    s_product_table = snapshot.table;
+    s_product_table = snapshot->table;
 
     ESP_LOGI(TAG,
              "product_db restaurada desde NVS con %d productos",

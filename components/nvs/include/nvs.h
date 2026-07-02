@@ -24,6 +24,17 @@ esp_err_t nvs_storage_init(void);
 bool nvs_storage_is_initialized(void);
 
 /**
+ * @brief Indica si un codigo de error representa una clave inexistente en NVS.
+ *
+ * Permite que los componentes de alto nivel no dependan directamente de los
+ * codigos internos de nvs_flash.h.
+ *
+ * @param err Codigo de error a evaluar.
+ * @return true si el error significa "clave no encontrada".
+ */
+bool nvs_storage_err_is_not_found(esp_err_t err);
+
+/**
  * @brief Borra toda la particion NVS y la vuelve a inicializar.
  *
  * @return ESP_OK si se borro e inicializo correctamente.
@@ -88,4 +99,5 @@ esp_err_t nvs_storage_set_blob(const char *key, const void *data, size_t data_le
 esp_err_t nvs_storage_get_blob(const char *key, void *buf, size_t *buf_size);
 
 #endif
+
 

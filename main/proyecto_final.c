@@ -256,7 +256,7 @@ static void load_catalog(void)
     uint32_t loaded = product_db_load_default_catalog();
 
     ESP_LOGI(TAG,
-             "Catalogo compartido cargado en product_db -> %lu/%d productos con stock inicial 0",
+             "Catalogo compartido cargado en product_db -> %lu/%d productos. Stocks persistidos conservados si existian.",
              (unsigned long)loaded,
              CATALOGO_SIZE);
 }

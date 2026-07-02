@@ -24,6 +24,21 @@ bool nvs_storage_is_initialized(void)
 }
 
 /**
+ * @brief Indica si un error corresponde a una clave inexistente en NVS.
+ *
+ * El wrapper normaliza las lecturas para devolver ESP_ERR_NOT_FOUND hacia el
+ * resto del proyecto, pero esta funcion tambien reconoce ESP_ERR_NVS_NOT_FOUND
+ * por compatibilidad con versiones anteriores del wrapper.
+ *
+ * @param err Codigo de error devuelto por NVS o por el wrapper.
+ * @return true si el dato solicitado no existe.
+ */
+bool nvs_storage_err_is_not_found(esp_err_t err)
+{
+    return err == ESP_ERR_NOT_FOUND || err == ESP_ERR_NVS_NOT_FOUND;
+}
+
+/**
  * @brief Valida que exista un handle NVS abierto antes de leer o escribir.
  *
  * @param operation Nombre de la operacion que se esta intentando ejecutar.
@@ -161,7 +176,11 @@ esp_err_t nvs_storage_get_str(const char *key, char *buf, size_t buf_size)
 
     size_t required_size = buf_size;
     err = nvs_get_str(s_handle, key, buf, &required_size);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+    if (nvs_storage_err_is_not_found(err)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (err != ESP_OK) {
         ESP_LOGE(TAG, "get_str('%s') failed: %s", key, esp_err_to_name(err));
     }
 
@@ -214,7 +233,11 @@ esp_err_t nvs_storage_get_int(const char *key, int32_t *out_value)
     }
 
     err = nvs_get_i32(s_handle, key, out_value);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+    if (nvs_storage_err_is_not_found(err)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (err != ESP_OK) {
         ESP_LOGE(TAG, "get_int('%s') failed: %s", key, esp_err_to_name(err));
     }
 
@@ -269,7 +292,11 @@ esp_err_t nvs_storage_get_blob(const char *key, void *buf, size_t *buf_size)
     }
 
     err = nvs_get_blob(s_handle, key, buf, buf_size);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND && err != ESP_ERR_NVS_INVALID_LENGTH) {
+    if (nvs_storage_err_is_not_found(err)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (err != ESP_OK && err != ESP_ERR_NVS_INVALID_LENGTH) {
         ESP_LOGE(TAG, "get_blob('%s') failed: %s", key, esp_err_to_name(err));
     }
 
