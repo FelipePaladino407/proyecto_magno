@@ -34,22 +34,4 @@ void touchpad_init(void);
  * @return true si está presionado.
  * @return false si no está presionado, si el índice es inválido o si no está inicializado.
  */
-bool touchpad_is_pressed(uint8_t button_index);
-
-/**
- * @brief Detecta una pulsación nueva.
- *
- * Esta función implementa detección de flanco:
- * devuelve true solo cuando un botón pasa de "no presionado" a "presionado".
- * Es la función recomendada para usar desde la task del main.
- *
- * @param button Puntero donde se guarda el botón detectado.
- * @return true si hubo una pulsación nueva.
- * @return false si no hubo ninguna pulsación nueva.
- */
-bool touchpad_get_pressed_button(touchpad_button_t *button);
-
-/**
- * @brief Devuelve un nombre legible del botón para logs.
- */
-const char *touchpad_button_name(touchpad_button_t button);
+void touchpad_start_task(void);
