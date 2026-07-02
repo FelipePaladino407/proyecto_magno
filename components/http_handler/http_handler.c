@@ -23,15 +23,22 @@ extern const unsigned char style_css_end[]    asm("_binary_style_css_end");
 extern const unsigned char app_js_start[]     asm("_binary_app_js_start");
 extern const unsigned char app_js_end[]       asm("_binary_app_js_end");
 
-// Helper para servir un archivo embedido
+// Helper para servir un archivo embedido corrigiendo desborde de bytes
 static esp_err_t send_embedded(httpd_req_t *req, const char *content_type,
                                 const unsigned char *start,
                                 const unsigned char *end)
 {
     httpd_resp_set_type(req, content_type);
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    return httpd_resp_send(req, (const char *)start,
-                           (ssize_t)(end - start));
+    
+    // Calculamos la longitud original del bloque mapeado
+    size_t total_len = (size_t)(end - start);
+
+    if (total_len > 0 && start[total_len - 1] == '\0') {
+        total_len--;
+    }
+
+    return httpd_resp_send(req, (const char *)start, (ssize_t)total_len);
 }
 
 // Handler para servir el archivo HTML embebido.
@@ -92,7 +99,7 @@ static bool url_decode(const char *src, char *dst, size_t dst_size)
     return true;
 }
 
-// POST /api/wifi — recibe ssid y password del formulario
+// POST /api/wifi recibe ssid y password del formulario
 static esp_err_t wifi_config_handler(httpd_req_t *req)
 {
     if (req->content_len <= 0 || req->content_len > 512) {
@@ -145,6 +152,31 @@ static esp_err_t wifi_config_handler(httpd_req_t *req)
     return httpd_resp_sendstr(req, "OK");
 }
 
+//Handler para obtención de status de red
+static esp_err_t status_handler(httpd_req_t *req)
+{
+    wifi_manager_status_t status;
+    wifi_manager_get_status(&status);
+
+    char response[256];
+
+    snprintf(response,
+             sizeof(response),
+             "{"
+             "\"connected\":%s,"
+             "\"credentials_saved\":%s,"
+             "\"ssid\":\"%s\","
+             "\"ip\":\"%s\""
+             "}",
+             status.connected ? "true" : "false",
+             status.credentials_saved ? "true" : "false",
+             status.sta_ssid,
+             status.ip_address);
+
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, response);
+}
+
 // Inicia el servidor web y registra los handlers. 
 // Devuelve ESP_OK si tuvo exito o un error de lo contrario.
 esp_err_t http_handler_start(void)
@@ -177,12 +209,16 @@ esp_err_t http_handler_start(void)
     const httpd_uri_t uri_wifi = {
         .uri = "/api/wifi", .method = HTTP_POST, .handler = wifi_config_handler
     };
+    const httpd_uri_t uri_status = {
+        .uri = "/api/status", .method = HTTP_GET, .handler = status_handler
+    };
 
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_index));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_index_html));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_css));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_js));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_wifi));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &uri_status));
 
     ESP_LOGI(TAG, "Servidor iniciado en http://192.168.4.1");
     return ESP_OK;
