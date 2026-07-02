@@ -8,6 +8,8 @@
 
 void product_db_init(void);
 
+uint32_t product_db_load_from_nvs(void);
+
 /* Carga un catalogo con stock inicial 0. Si el producto ya existe, conserva su stock. */
 uint32_t product_db_load_catalog(const ProductoCatalogo *catalog,
                                  size_t catalog_size);

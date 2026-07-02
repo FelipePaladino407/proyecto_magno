@@ -7,6 +7,12 @@
 static const char *TAG = "nvs";
 static nvs_handle_t s_handle = 0;
 
+
+bool nvs_storage_is_ready(void)
+{
+    return s_handle != 0;
+}
+
 /**
  * @brief Inicializa la partición NVS.
  *
@@ -16,10 +22,12 @@ static nvs_handle_t s_handle = 0;
  */
 esp_err_t nvs_storage_init(void) {
     esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES) {
+
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
+
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "nvs_flash_init failed: %s", esp_err_to_name(err));
         return err;
@@ -29,6 +37,7 @@ esp_err_t nvs_storage_init(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "nvs_open failed: %s", esp_err_to_name(err));
     }
+
     return err;
 }
 
@@ -143,10 +152,17 @@ esp_err_t nvs_storage_set_blob(const char *key, const void *data, size_t data_le
  * @param buf_size Tamaño del buffer (entrada/salida).
  * @return ESP_OK si la lectura fue exitosa.
  */
-esp_err_t nvs_storage_get_blob(const char *key, void *buf, size_t *buf_size) {
+esp_err_t nvs_storage_get_blob(const char *key, void *buf, size_t *buf_size)
+{
     esp_err_t err = nvs_get_blob(s_handle, key, buf, buf_size);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND && err != ESP_ERR_NVS_INVALID_LENGTH) {
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (err != ESP_OK && err != ESP_ERR_NVS_INVALID_LENGTH) {
         ESP_LOGE(TAG, "get_blob('%s') failed: %s", key, esp_err_to_name(err));
     }
+
     return err;
 }

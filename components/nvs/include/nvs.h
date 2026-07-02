@@ -1,6 +1,10 @@
 #ifndef NVS_H
 #define NVS_H
 
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+
 #include "esp_err.h"
 
 #define NVS_NAMESPACE   "storage"
@@ -8,6 +12,9 @@
 
 esp_err_t nvs_storage_init(void);
 esp_err_t nvs_storage_clear(void);
+
+// Nada mas para saber si nvs esta listo. Sirve para no romper pruebas con product_db sin nvs.
+bool nvs_storage_is_ready(void);
 
 esp_err_t nvs_storage_set_str(const char *key, const char *value);
 esp_err_t nvs_storage_get_str(const char *key, char *buf, size_t buf_size);
