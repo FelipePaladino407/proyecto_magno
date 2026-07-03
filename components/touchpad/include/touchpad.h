@@ -35,3 +35,4 @@ void touchpad_init(void);
  * @return false si no está presionado, si el índice es inválido o si no está inicializado.
  */
 void touchpad_start_task(void);
+bool touchpad_is_pressed(uint8_t button_index);

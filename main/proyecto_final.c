@@ -30,6 +30,14 @@
 
 static const char *TAG = "MAIN";
 
+#define TOUCHPAD_CHANNEL_NUM     4
+#define TOUCHPAD_TASK_STACK_SIZE 4096 
+#define TOUCHPAD_TASK_PRIORITY   1
+#define TOUCHPAD_POLL_PERIOD_MS    50   // frecuencia de polling de los botones (touchpad_task)
+#define TOUCHPAD_QUEUE_SEND_TIMEOUT_MS 100  // tiempo de espera despues de enviar un evento a fsm_event_queue (touchpad_task)
+static TaskHandle_t          s_task_handle = NULL;   // handle de la task de touchpad
+
+
 /*
  * En rol CAM queda NULL a proposito: la placa de camara no levanta la FSM
  * principal ni debe recibir eventos de touch/LCD.
@@ -96,6 +104,20 @@ static void lcd_show_error_cb(const char *message)
     lcd_show_error(message != NULL ? message : "Error desconocido");
 }
 
+static const EventType event_map[TOUCHPAD_CHANNEL_NUM] = {
+    EV_BTN_UP,      /*  Boton VOL_UP     */
+    EV_BTN_CONFIRM, /*  Boton PLAY/PAUSE */
+    EV_BTN_DOWN,    /*  Boton VOL_DOWN   */
+    EV_BTN_CANCEL,  /*  Boton RECORD     */
+};
+
+static const char *button_names[TOUCHPAD_CHANNEL_NUM] = {
+    "VOL_UP (contador +)",
+    "PLAY/PAUSE (confirmar)",
+    "VOL_DOWN (contador -)",
+    "RECORD (cancelar)",
+};
+
 static bool mqtt_publish_qr_cb(const Product *product)
 {
     if (product == NULL) {
@@ -155,34 +177,6 @@ static void post_touch_event(EventType event)
 {
     if (!fsm_post_event(event)) {
         ESP_LOGW(TAG, "No se pudo enviar evento touch a la FSM: %d", event);
-    }
-}
-
-static bool touchpad_button_to_event(touchpad_button_t button, EventType *event)
-{
-    if (event == NULL) {
-        return false;
-    }
-
-    switch (button) {
-        case TOUCHPAD_BUTTON_UP:
-            *event = EV_BTN_UP;
-            return true;
-
-        case TOUCHPAD_BUTTON_CONFIRM:
-            *event = EV_BTN_CONFIRM;
-            return true;
-
-        case TOUCHPAD_BUTTON_DOWN:
-            *event = EV_BTN_DOWN;
-            return true;
-
-        case TOUCHPAD_BUTTON_CANCEL:
-            *event = EV_BTN_CANCEL;
-            return true;
-
-        default:
-            return false;
     }
 }
 
@@ -261,6 +255,33 @@ static void load_catalog(void)
              CATALOGO_SIZE);
 }
 
+static void touchpad_task(void *pvParameters){  // Task que hace polling continuo de los botones y envía eventos a la cola de FSM
+    (void)pvParameters;
+
+    bool was_pressed[TOUCHPAD_CHANNEL_NUM] = {false};   // guarda el estado anterior de cada botón
+    TickType_t last_wake_time = xTaskGetTickCount();    // para usar vTaskDelayUntil() y mantener un periodo constante
+
+    ESP_LOGI(TAG, "touchpad_task iniciada");
+
+    while (1){
+        for (uint8_t i = 0; i < TOUCHPAD_CHANNEL_NUM; i++){ // por cada botón
+            bool pressed = touchpad_is_pressed(i);  // chequea si el botón está presionado
+
+            if (pressed && !was_pressed[i]){    // si el botón acaba de ser presionado (flanco ascendente)
+                EventType event = event_map[i];     // obtiene el evento correspondiente al botón
+                if (xQueueSend(fsm_event_queue, &event, pdMS_TO_TICKS(TOUCHPAD_QUEUE_SEND_TIMEOUT_MS)) != 1){   // intenta enviar el evento a la cola de FSM
+                    ESP_LOGW(TAG, "No se pudo enviar evento %d a la cola de FSM", button_names[i]); // si falla, loguea un warning
+                } else {
+                    ESP_LOGI(TAG, "Evento %d enviado a la cola de FSM", button_names[i]);   // si se envía correctamente, loguea un info
+                }
+            }
+            was_pressed[i] = pressed;   // actualiza el estado anterior del botón
+        }
+        vTaskDelayUntil(&last_wake_time,     pdMS_TO_TICKS(TOUCHPAD_POLL_PERIOD_MS));   // espera hasta el siguiente periodo de polling
+    }
+}
+
+
 static void app_lcd_init(void)
 {
     ESP_LOGI(TAG, "Inicializando rol LCD + TOUCH");
@@ -307,7 +328,7 @@ static void app_lcd_init(void)
 //    button_int_config();
 
     touchpad_init();
-    touchpad_start_task(void);
+    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", TOUCHPAD_TASK_STACK_SIZE, NULL, TOUCHPAD_TASK_PRIORITY, &s_task_handle);
 
 #if ENABLE_FAKE_QR_DEMO
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
