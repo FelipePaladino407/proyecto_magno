@@ -158,34 +158,6 @@ static void post_touch_event(EventType event)
     }
 }
 
-static bool touchpad_button_to_event(touchpad_button_t button, EventType *event)
-{
-    if (event == NULL) {
-        return false;
-    }
-
-    switch (button) {
-        case TOUCHPAD_BUTTON_UP:
-            *event = EV_BTN_UP;
-            return true;
-
-        case TOUCHPAD_BUTTON_CONFIRM:
-            *event = EV_BTN_CONFIRM;
-            return true;
-
-        case TOUCHPAD_BUTTON_DOWN:
-            *event = EV_BTN_DOWN;
-            return true;
-
-        case TOUCHPAD_BUTTON_CANCEL:
-            *event = EV_BTN_CANCEL;
-            return true;
-
-        default:
-            return false;
-    }
-}
-
 #if ENABLE_FAKE_QR_DEMO
 static void demo_wait_until_fsm_finishes_flow(void)
 {
@@ -261,34 +233,6 @@ static void load_catalog(void)
              CATALOGO_SIZE);
 }
 
-static void touchpad_task(void *pvParameters)
-{
-    (void)pvParameters;
-
-    while (true) {
-        touchpad_button_t button;
-
-        if (touchpad_get_pressed_button(&button)) {
-            EventType event;
-
-            if (touchpad_button_to_event(button, &event)) {
-                ESP_LOGI(TAG,
-                         "Touch %s presionado -> evento FSM %d",
-                         touchpad_button_name(button),
-                         event);
-
-                post_touch_event(event);
-            } else {
-                ESP_LOGW(TAG,
-                         "Touch %s sin evento FSM asociado",
-                         touchpad_button_name(button));
-            }
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(TOUCHPAD_POLL_INTERVAL_MS));
-    }
-}
-
 static void app_lcd_init(void)
 {
     ESP_LOGI(TAG, "Inicializando rol LCD + TOUCH");
@@ -335,7 +279,7 @@ static void app_lcd_init(void)
 //    button_int_config();
 
     touchpad_init();
-    xTaskCreate(&touchpad_task, "TOUCHPAD_TASK", 4096, NULL, 1, NULL);
+    touchpad_start_task();
 
 #if ENABLE_FAKE_QR_DEMO
     xTaskCreate(&fake_qr_demo_task, "FAKE_QR_DEMO", 4096, NULL, 1, NULL);
@@ -410,6 +354,7 @@ void app_main(void)
      */
     app_lcd_init();
     app_network_init();
+
 #elif DEVICE_IS_CAM
     /*
      * En CAM primero se inicializa NVS/pending_queue/WiFi; asi cualquier QR
