@@ -1,5 +1,7 @@
 # Proyecto Final
 
+LINK DEL THINGSBOARD: 
+https://thingsboard.cloud/dashboard/45e246e0-6b57-11f1-b47c-6701b13b55a5?publicId=d985b7c0-764b-11f1-a3bc-95bc3f4b3917
 
 ## Contribuciones
 
